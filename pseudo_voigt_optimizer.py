@@ -4,7 +4,9 @@ from scipy.io import loadmat
 import implementation.aux_funcs as fs
 import os
 from autograd import grad, multigrad_dict
+from autograd import elementwise_grad as egrad
 
+dlogistic_dx = egrad(fs.logistic, 0)
 
 def log_posterior(X, eta_t, alpha_t, c_t, gamma_t, beta_t, B_t, tau_t, height_t, steep_t, w):
 
@@ -38,12 +40,12 @@ def log_posterior(X, eta_t, alpha_t, c_t, gamma_t, beta_t, B_t, tau_t, height_t,
 
     alpha = np.exp(alpha_t)
     gamma = np.exp(gamma_t)
-    eta = fs.logistic(eta_t,1,1)[0]
+    eta = fs.logistic(eta_t,1,1)
     beta = np.exp(beta_t)
-    c = fs.logistic(c_t, W, 0.25)[0]
+    c = fs.logistic(c_t, W, 0.25)
     tau = np.exp(tau_t)
-    height = fs.logistic(height_t, 10, 0.5)[0]
-    steep = fs.logistic(steep_t, 50, 0.25)[0]
+    height = fs.logistic(height_t, 10, 0.5)
+    steep = fs.logistic(steep_t, 50, 0.25)
 
     ls = fs.length_scale(c, gamma, steep, w, height)
     cov_B = fs.gibbs_kernel(w, ls, sigma)
@@ -72,13 +74,13 @@ def log_posterior(X, eta_t, alpha_t, c_t, gamma_t, beta_t, B_t, tau_t, height_t,
     prior_beta = np.sum(-beta0*beta + beta_t)     # exponential prior
     prior_tau = (a_tau-1)*tau_t - tau / b_tau + tau_t # gamma prior
 
-    prior_eta = np.sum(np.log(fs.logistic(eta_t, 1,1)[1]))  # uniform prior
-    prior_height = np.sum(np.log(fs.logistic(height_t, 10, 0.5)[1])) # uniform prior
+    prior_eta = np.sum(np.log(dlogistic_dx(eta_t, 1,1)))  # uniform prior
+    prior_height = np.sum(np.log(dlogistic_dx(height_t, 10, 0.5))) # uniform prior
 
     prior_B = 0.5*np.dot(B_t, B_t)                         # GP prior
 
-    prior_c = np.sum(truncnorm.logpdf(c, 0, W, mu_c, 1.0 / tau_c) + np.log(fs.logistic(c_t, W, 0.25)[1]))
-    prior_steep = (truncnorm.logpdf(steep, 0, 50, 25, 5) + np.log(fs.logistic(steep_t, 50, 0.25)[1]))
+    prior_c = np.sum(truncnorm.logpdf(c, 0, W, mu_c, 1.0 / tau_c) + np.log(dlogistic_dx(c_t, W, 0.25)))
+    prior_steep = (truncnorm.logpdf(steep, 0, 50, 25, 5) + np.log(dlogistic_dx(steep_t, 50, 0.25)))
 
     logpost = ll + prior_alpha + prior_gamma + prior_beta + prior_tau + prior_eta + \
               prior_height + prior_B + prior_c + prior_steep
@@ -115,7 +117,7 @@ if __name__ == '__main__':
     height_t = np.random.uniform(0.01,10)
     steep_t = truncnorm.rvs(0,50,25,10)
 
-    w = list(range(W))
+    w = np.array(list(range(W)), dtype=float)
 
     ll = log_posterior(X,eta_t,alpha_t,c_t,gamma_t,beta_t,B_t, tau_t, height_t, steep_t, w)
 

@@ -1,18 +1,42 @@
 import autograd.numpy as np
 from scipy.special import erf, erfinv
-import tangent
+#import tangent
+from autograd import grad, value_and_grad
+from autograd import elementwise_grad as egrad
 
 
 ##############################   NON-STATIONARY KERNEL   ##############################
-def gibbs_kernel(x, l, sigma):
+def gibbs_kernel_old(x, l, sigma):
     W = len(x)
     K = np.zeros((W,W))
+
     for i in range(W):
         for j in range(W):
             prefactor = np.sqrt(2*l[i]*l[j] / (l[i]*l[i] + l[j]*l[j]))
             exponential = np.exp(- (x[i] - x[j])*(x[i] - x[j]) / (l[i]*l[i] + l[j]*l[j]))
             K[i,j] = sigma*sigma * prefactor * exponential
-    K = K + 1e-4*np.eye(W)
+    K = K + 1e-6*np.eye(W)
+    return K
+
+
+def gibbs_kernel(x, l, sigma):
+    # simply a vectorized version of the kernel for autograd + its much more efficient
+
+
+    W = len(x)
+
+    lij = np.outer(l, l)
+    l_sums_1 = np.reshape(np.repeat(l * l, W, axis=0), (W, W))
+    l_sums = l_sums_1 + np.transpose(l_sums_1)
+    x_rep = np.reshape(np.repeat(x, W, axis=0), (W,W))
+    ximj = x_rep - np.transpose(x_rep)
+    ximj_sq = ximj * ximj
+
+    prefactor = np.sqrt(2 * lij / l_sums)
+    exponential = np.exp(- ximj_sq / l_sums)
+
+    K = sigma*sigma*prefactor*exponential + 1e-6*np.eye(W)
+
     return K
 
 
@@ -82,28 +106,19 @@ def link_rectgauss(h, pars):
 
 def logistic(x, L, k, x0=0):
     val = L / (1.0 + np.exp(-k*(x-x0)))
-    try:
-        N = len(x)
-        grad = np.array(list(map(dlogisticdx, x, [L] * N, [k] * N, [x0] * N)))
-    except TypeError:
-        grad = dlogisticdx(x, L, k, x0)
-
-    return val, grad
+    return val
 
 
 def inv_logistic(p, L, k, x0=0):
     val = 1 / k * (np.log(p) + k*x0 - np.log(L-p))
+    return val
 
-    try:
-        N = len(p)
-        grad = np.array(list(map(dinv_logisticdp, p, [L]*N, [k]*N, [x0]*N)))
-    except TypeError:
-        grad = dinv_logisticdp(p, L, k, x0)
+dlogistic_dx = egrad(logistic, 0)
 
-    return val, grad
+#dinvlogistic_dp = egrad(inv_logistic, 0)
 
 
-
+"""
 ## Following is auto-generated from tangent
 def dlogisticdx(x, L, k, x0=0, bval=1.0):
     x_minus_x0 = x - x0
@@ -158,8 +173,8 @@ def dinv_logisticdp(p, L, k, x0=0, bval=1.0):
     bp = tangent.add_grad(bp, _bp)
     return bp
 
-
-def pseudo_voigt(w, c, gamma, eta):
+"""
+def pseudo_voigt_old(w, c, gamma, eta):
     # w is array
     W = len(w)
     K = len(c)
@@ -170,6 +185,25 @@ def pseudo_voigt(w, c, gamma, eta):
         G = 1.0 / (np.sqrt(2*np.pi)*gamma[k])*np.exp(-(w-c[k])**2 / (2*gamma[k]*gamma[k]))
         V[:,k] = eta[k] * L + (1 - eta[k]) * G
 
+
+    # With this construction, the entire W x N matrix can be expressed as V@alpha, where alpha is a K x N matrix of coefs
+    # The W x N matrix I can then be computed by I = V@alpha + np.outer(B,beta)
+
+    return V
+
+def pseudo_voigt(w, c, gamma, eta):
+    # vectorized version of pseudo_voigt for autograd
+
+    # w is array
+    W = len(w)
+    K = len(c)
+    wc = (np.reshape(np.repeat(w, K), (W,K)) - c)**2
+    gamma_arr = np.reshape(np.repeat(gamma, W), (W,K))
+    eta_arr = eta
+    #eta_arr = np.repeat(eta)
+    L = gamma_arr * np.pi**(-1) / (wc + gamma_arr*gamma_arr)
+    G = 1.0 / (np.sqrt(2*np.pi)*gamma_arr)*np.exp(-wc / (2*gamma_arr*gamma_arr))
+    V = eta_arr * L + (1 - eta_arr) * G
 
     # With this construction, the entire W x N matrix can be expressed as V@alpha, where alpha is a K x N matrix of coefs
     # The W x N matrix I can then be computed by I = V@alpha + np.outer(B,beta)
