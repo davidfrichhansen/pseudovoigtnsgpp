@@ -1,7 +1,7 @@
 import autograd.numpy as np
-from scipy.special import erf, erfinv
-#import tangent
-from autograd import grad, value_and_grad
+from autograd.scipy.special import erf, erfinv
+from autograd.scipy.stats import norm
+
 from autograd import elementwise_grad as egrad
 
 
@@ -210,3 +210,13 @@ def pseudo_voigt(w, c, gamma, eta):
 
     return V
 
+############################## Distributions ##############################
+
+def truncated_normal_logpdf(x, a, b, loc, scale):
+   # if  not (a <= np.all(x) <= b):
+   #     return -np.inf
+    y = (x - loc) / scale
+    z = norm.cdf((b - loc) / scale) - norm.cdf((a-loc) / scale)
+    val = np.log((2*np.pi)**(-0.5) * np.exp(-0.5 * y*y) / (scale*z))
+
+    return val
