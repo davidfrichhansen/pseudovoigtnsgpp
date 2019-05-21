@@ -1,9 +1,12 @@
 import autograd.numpy as np
-from scipy.stats import truncnorm, norm
+from autograd.scipy.stats import norm
+from scipy.stats import truncnorm
 from scipy.io import loadmat
 import implementation.aux_funcs as fs
 import os
-from autograd import grad, multigrad_dict
+from autograd import value_and_grad
+import funcsigs
+
 from autograd import elementwise_grad as egrad
 
 dlogistic_dx = egrad(fs.logistic, 0)
@@ -62,9 +65,8 @@ def log_posterior(X, eta_t, alpha_t, c_t, gamma_t, beta_t, B_t, tau_t, height_t,
     I = np.dot(V,alpha) + np.outer(B,beta)
 
     assert I.shape == X.shape
+    ll = np.sum(np.sum(norm.logpdf(X,  I, 1/tau * np.ones((W,N))))) # maybe tau should be squared
 
-
-    ll = np.sum(np.sum(norm.logpdf(X,  loc=I, scale=1/tau))) # maybe tau should be squared
 
 
     # priors
@@ -87,13 +89,12 @@ def log_posterior(X, eta_t, alpha_t, c_t, gamma_t, beta_t, B_t, tau_t, height_t,
 
     return logpost
 
-grad_logposterior = multigrad_dict(log_posterior)
 
-def logpost_wrapper(X, eta_t, alpha_t, c_t, gamma_t, beta_t, B_t, tau_t, height_t, steep_t, w):
-    val = log_posterior(X, eta_t, alpha_t, c_t, gamma_t, beta_t, B_t, tau_t, height_t, steep_t, w)
-    grad_dict = grad_logposterior(X, eta_t, alpha_t, c_t, gamma_t, beta_t, B_t, tau_t, height_t, steep_t, w)
+def logpost_grads(eta_t, alpha_t, c_t, gamma_t, beta_t, B_t, tau_t, height_t, steep_t):
 
-    return val, grad_dict
+    names = funcsigs.signature(logpost_grads).parameters.keys()
+
+    return {name : value_and_grad(log_posterior, i+1) for i,name in enumerate(names)} # extremely hacky. should be changed
 
 
 
@@ -113,7 +114,7 @@ if __name__ == '__main__':
     gamma_t = np.random.exponential(5, size=(K))
     beta_t = np.random.exponential(5, size=(N))
     B_t = np.random.normal(0,1,size=W)
-    tau_t = np.random.gamma(5,3)
+    tau_t = np.random.gamma(0.2,0.3)
     height_t = np.random.uniform(0.01,10)
     steep_t = truncnorm.rvs(0,50,25,10)
 
@@ -121,4 +122,10 @@ if __name__ == '__main__':
 
     ll = log_posterior(X,eta_t,alpha_t,c_t,gamma_t,beta_t,B_t, tau_t, height_t, steep_t, w)
 
-    ll, grad_dict = logpost_wrapper(X,eta_t,alpha_t,c_t,gamma_t,beta_t,B_t, tau_t, height_t, steep_t, w)
+    grad_funs = logpost_grads(eta_t,alpha_t,c_t,gamma_t,beta_t,B_t, tau_t, height_t, steep_t)
+
+
+    max_iter = 1000
+
+    for _ in range(max_iter):
+        for
