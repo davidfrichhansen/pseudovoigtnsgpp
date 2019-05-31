@@ -3,8 +3,7 @@ from autograd.scipy.stats import norm
 from scipy.stats import truncnorm
 from scipy.io import loadmat
 from scipy.optimize import minimize
-import implementation.aux_funcs as fs
-import os
+import implementation.autograd.aux_funcs as fs
 from autograd import value_and_grad
 import funcsigs
 from autograd import elementwise_grad as egrad
@@ -75,18 +74,25 @@ def log_posterior(X, eta_t, alpha_t, c_t, gamma_t, beta_t, B_t, tau_t, height_t,
 
     # priors
 
-    prior_alpha = np.sum(np.sum(-alpha0*alpha + np.reshape(alpha_t, (K,N)))) # exponential prior
-    prior_gamma = np.sum(np.sum(-gamma0*gamma + gamma_t)) # exponential prior
-    prior_beta = np.sum(-beta0*beta + beta_t)     # exponential prior
+    prior_alpha = np.sum(np.sum(alpha0*alpha - np.reshape(alpha_t, (K,N)))) # exponential prior
+    prior_gamma = np.sum(np.sum(gamma0*gamma - gamma_t)) # exponential prior
+    prior_beta = np.sum(beta0*beta - beta_t)     # exponential prior
     prior_tau = (a_tau-1)*tau_t - tau / b_tau + tau_t # gamma prior
 
-    prior_eta = np.sum(np.log(dlogistic_dx(eta_t, 1,1)))  # uniform prior
-    prior_height = np.sum(np.log(dlogistic_dx(height_t, 10, 0.5))) # uniform prior
+    #prior_eta = np.sum(np.log(dlogistic_dx(eta_t, 1,1)))  # uniform prior
+    #prior_height = np.sum(np.log(dlogistic_dx(height_t, 10, 0.5))) # uniform prior
+    prior_eta = 0
+    prior_height = 0
+    prior_B = - 0.5*np.dot(B_t, B_t)                         # GP prior
 
-    prior_B = 0.5*np.dot(B_t, B_t)                         # GP prior
+    #prior_c = np.sum(fs.truncated_normal_logpdf(c, 0, W, mu_c, 1.0 / tau_c) - np.log(dlogistic_dx(c_t, W, 0.25)))
+    #prior_steep = (fs.truncated_normal_logpdf(steep, 0, 50, 25, 5) - np.log(dlogistic_dx(steep_t, 50, 0.25)))
 
-    prior_c = np.sum(fs.truncated_normal_logpdf(c, 0, W, mu_c, 1.0 / tau_c) + np.log(dlogistic_dx(c_t, W, 0.25)))
-    prior_steep = (fs.truncated_normal_logpdf(steep, 0, 50, 25, 5) + np.log(dlogistic_dx(steep_t, 50, 0.25)))
+    low_c, high_c = (0 - mu_c) * tau_c, (W - mu_c) *tau_c
+    prior_c = np.sum(truncnorm.logpdf(c_t, low_c, high_c, mu_c, 1 / tau_c) - np.log(dlogistic_dx(c_t, W, 0.25)))
+
+    low_steep , high_steep = (0-25) / 5, (50-25) / 5
+    prior_steep = (truncnorm.logpdf(steep_t, low_steep, high_steep, 25,5) - np.log(dlogistic_dx(steep_t, 50, 0.25)))
 
     logpost = ll + prior_alpha + prior_gamma + prior_beta + prior_tau + prior_eta + \
               prior_height + prior_B + prior_c + prior_steep

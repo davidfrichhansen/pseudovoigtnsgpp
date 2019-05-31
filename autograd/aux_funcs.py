@@ -213,8 +213,8 @@ def pseudo_voigt(w, c, gamma, eta):
 ############################## Distributions ##############################
 
 def truncated_normal_logpdf(x, a, b, loc, scale):
-   # if  not (a <= np.all(x) <= b):
-   #     return -np.inf
+    if not (a <= np.all(x) <= b):
+        return -np.inf
     y = (x - loc) / scale
     z = norm.cdf((b - loc) / scale) - norm.cdf((a-loc) / scale)
     val = np.log((2*np.pi)**(-0.5) * np.exp(-0.5 * y*y) / (scale*z))
