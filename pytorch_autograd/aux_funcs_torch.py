@@ -2,7 +2,7 @@ import torch
 import numpy as np
 
 
-
+##### NON STATIONARY KERNEl
 def gibbs_kernel(x,l,sigma):
     W = x.size()[0]
 
@@ -23,8 +23,6 @@ def gibbs_kernel(x,l,sigma):
 
     return K
 
-
-
 def length_scale(c,gamma,steep,w,height,base=1e-6):
     K = c.size()[0]
     W = w.size()[0]
@@ -32,13 +30,15 @@ def length_scale(c,gamma,steep,w,height,base=1e-6):
     l = base*torch.ones(W).double()
 
     for idx, k in enumerate(range(0,2*K-1, 2)):
-        endpoint1 = c[idx] - gamma[idx]
-        endpoint2 = c[idx] + gamma[idx]
-        l = l + height * (torch.tanh((w - endpoint1)*steep) - torch.tanh((w-endpoint2)*steep))
+        endpoint1 = (c[idx] - gamma[idx]).double()
+        endpoint2 = (c[idx] + gamma[idx]).double()
+        l = l + height.double() * (torch.tanh((w.double() - endpoint1)*steep.double()) - torch.tanh((w.double()-endpoint2)*steep.double()))
 
     return l
 
 
+
+##### PSEUDO VOIGT
 def pseudo_voigt(w,c,gamma,eta):
     W = w.size()[0]
     K = c.size()[0]
@@ -54,6 +54,8 @@ def pseudo_voigt(w,c,gamma,eta):
     return V
 
 
+##### TRANSFORMATIONS
+
 def general_sigmoid(x,L,k):
     val = L*torch.sigmoid(k*x)
     return val
@@ -61,3 +63,19 @@ def general_sigmoid(x,L,k):
 def dgen_sigmoid(x,L,k):
     grad = torch.exp(-k*x)*k*L / ((1+torch.exp(-k*x))**2)
     return grad
+
+
+#### LINK FUNCTIONS
+def exp_to_gauss(h,pars):
+    assert len(pars) == 2
+    sigma = pars[0]
+    lambda_ = pars[1]
+
+    inner = 1e-12 + .5 - .5*torch.erf(h / (np.sqrt(2) *sigma))
+
+    val = torch.max((-1.0 / lambda_) * torch.log(inner), torch.tensor(0).double())
+    val[val != val] = 0 # Remove nans
+    #grad =
+
+    return val
+

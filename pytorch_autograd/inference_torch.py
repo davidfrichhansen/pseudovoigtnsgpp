@@ -13,15 +13,15 @@ def log_posterior(X, eta_t, alpha_t, c_t, gamma_t, beta_t, B_t, tau_t, height_t,
 
     W, N = X.size()
 
-    alpha0 = torch.tensor(1.0).double()
-    mu_c = torch.tensor(W/2).double()
-    tau_c = torch.tensor(1).double()
-    gamma0 = torch.tensor(1).double()
-    beta0 = torch.tensor(1).double()
-    a_tau = torch.tensor(0.5).double()
-    b_tau = torch.tensor(0.3).double()
+    alpha0 = torch.tensor(1.0)
+    mu_c = torch.tensor(W/2.)
+    tau_c = torch.tensor(1.)
+    gamma0 = torch.tensor(1.)
+    beta0 = torch.tensor(1.)
+    a_tau = torch.tensor(0.5)
+    b_tau = torch.tensor(0.3)
 
-    sigma = torch.tensor(1).double()
+    sigma = torch.tensor(1.)
 
 
     # parameter transformations
@@ -35,16 +35,16 @@ def log_posterior(X, eta_t, alpha_t, c_t, gamma_t, beta_t, B_t, tau_t, height_t,
     steep = fs.general_sigmoid(steep_t, 75, 0.25)
 
     l = fs.length_scale(c,gamma,steep,w,height)
-    covB = fs.gibbs_kernel(w,l,sigma)
+    covB = fs.gibbs_kernel(w.double(),l.double(),sigma.double())
     cholB = torch.cholesky(covB)
 
     B = torch.mv(cholB, B_t)
 
     # likelihood
-    V = fs.pseudo_voigt(w,c,gamma,eta)
+    V = fs.pseudo_voigt(w.double(),c.double(),gamma.double(),eta.double())
     I = torch.mm(V,alpha) + torch.ger(B,beta)
 
-    ll = torch.distributions.normal.Normal(I, 1/tau).log_prob(X).sum()
+    ll = torch.distributions.normal.Normal(I.double(), 1/tau.double()).log_prob(X.double()).sum()
 
     prior_alpha = torch.distributions.exponential.Exponential(alpha0).log_prob(alpha).sum() - alpha_t.sum()
     prior_gamma = torch.distributions.exponential.Exponential(gamma0).log_prob(gamma).sum() - gamma_t.sum()
@@ -75,27 +75,28 @@ if __name__ == '__main__':
     # TODO: REQUIRE GRADS
 
     mats = loadmat('/home/david/Documents/Universitet/5_aar/PseudoVoigtMCMC/implementation/data/simulated.mat')
-    X = torch.from_numpy(mats['X'].T).double()
+    X = torch.from_numpy(mats['X'].T).float()
     W, N = X.size()
     K = 3
 
     np.random.seed(1)
-    eta_t = torch.from_numpy(np.random.uniform(-10, 10, size=(K))).double()
-    alpha_t = torch.from_numpy(np.random.exponential(5, size=(K * N))).double()
+    eta_t = torch.from_numpy(np.random.uniform(-10, 10, size=(K))).requires_grad_(True)
+    alpha_t = torch.from_numpy(np.random.exponential(5, size=(K * N))).requires_grad_(True)
     a, b = (0 - W / 2) / 100, (W - W / 2) / 100
-    c_t = torch.from_numpy(truncnorm.rvs(a, b, 100, size=(K))).double()
-    gamma_t = torch.from_numpy(np.random.exponential(5, size=(K))).double()
-    beta_t = torch.from_numpy(np.random.exponential(5, size=(N))).double()
-    B_t = torch.from_numpy(np.random.normal(0, 1, size=W)).double()
-    tau_t = torch.tensor(np.random.gamma(0.2, 0.3)).double()
-    height_t = torch.tensor(np.random.uniform(0.01, 10)).double()
+    c_t = torch.from_numpy(truncnorm.rvs(a, b, 100, size=(K))).requires_grad_(True)
+    gamma_t = torch.from_numpy(np.random.exponential(5., size=(K))).requires_grad_(True)
+    beta_t = torch.from_numpy(np.random.exponential(5., size=(N))).requires_grad_(True)
+    B_t = torch.from_numpy(np.random.normal(0, 1, size=W)).requires_grad_(True)
+    tau_t = torch.tensor(np.random.gamma(0.2, 0.3)).requires_grad_(True).double()
+    height_t = torch.tensor(np.random.uniform(0.01, 10)).requires_grad_(True).double()
 
     a, b = (0 - 25) / 100, (50 - 25) / 10
-    steep_t = torch.tensor(truncnorm.rvs(a, b, 25, 10))
+    steep_t = torch.tensor(truncnorm.rvs(a, b, 25, 10)).requires_grad_(True).double()
 
-    w = torch.from_numpy(np.array(list(range(W)), dtype=float)).double()
+    w = torch.from_numpy(np.array(list(range(W))))
 
 
 
     # test
     ll = log_posterior(X,eta_t,alpha_t,c_t, gamma_t, beta_t, B_t, tau_t, height_t, steep_t, w, K)
+    ll.backward()
