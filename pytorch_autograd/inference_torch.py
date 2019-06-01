@@ -1,9 +1,13 @@
 import torch
+from torch.autograd import grad
+import funcsigs
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.stats import truncnorm
 import implementation.pytorch_autograd.aux_funcs_torch as fs
 from scipy.io import loadmat
+from scipy.optimize import minimize
+
 
 
 def log_posterior(X, eta_t, alpha_t, c_t, gamma_t, beta_t, B_t, tau_t, height_t, steep_t, w, K):
@@ -65,6 +69,29 @@ def log_posterior(X, eta_t, alpha_t, c_t, gamma_t, beta_t, B_t, tau_t, height_t,
 
     return logpost
 
+def logpost_wrap(par_value, par_name, other_pars):
+    # wraps the objective function for par_name
+    names = funcsigs.signature(log_posterior).parameters.keys()
+    par_dict = {n : None for n in names}
+    # forward pass
+    for n in names:
+        if n == par_name:
+            par_dict[n] = par_value
+        else:
+            par_dict[n] = other_pars[n]
+
+    ll = log_posterior(par_dict['X'], par_dict['eta_t'], par_dict['alpha_t'], par_dict['c_t'], par_dict['gamma_t'],
+                        par_dict['beta_t'], par_dict['B_t'], par_dict['tau_t'], par_dict['height_t'],
+                       par_dict['steep_t'], par_dict['w'], par_dict['K'])
+
+    # backprop
+    par_grad = grad(ll, par_value)[0] # par_value is tensor, which is why this works
+    ll_detach = ll.detach()
+    grad_detach = par_grad.detach()
+    return -ll_detach.numpy(), -grad_detach.numpy()
+
+
+
 
 
 
@@ -72,14 +99,17 @@ def log_posterior(X, eta_t, alpha_t, c_t, gamma_t, beta_t, B_t, tau_t, height_t,
 
 if __name__ == '__main__':
 
-    # TODO: REQUIRE GRADS
+     #TODO: CHECK IF TORCH OPTIM SHOULD BE USED INSTEAD - PROBABLY MUCH MORE EFFICIENT AS ALL COMPUTATIONS STAY ON GRAPH AND MAYBE ON GPU
+     # UPDATE: NOT FEASIBLE WITH SCIPY OPTIMIZE
+
+
 
     mats = loadmat('/home/david/Documents/Universitet/5_aar/PseudoVoigtMCMC/implementation/data/simulated.mat')
     X = torch.from_numpy(mats['X'].T).float()
     W, N = X.size()
     K = 3
 
-    np.random.seed(1)
+    np.random.seed(0)
     eta_t = torch.from_numpy(np.random.uniform(-10, 10, size=(K))).requires_grad_(True)
     alpha_t = torch.from_numpy(np.random.exponential(5, size=(K * N))).requires_grad_(True)
     a, b = (0 - W / 2) / 100, (W - W / 2) / 100
@@ -97,6 +127,27 @@ if __name__ == '__main__':
 
 
 
-    # test
-    ll = log_posterior(X,eta_t,alpha_t,c_t, gamma_t, beta_t, B_t, tau_t, height_t, steep_t, w, K)
-    ll.backward()
+    # test forward pass
+    #ll = log_posterior(X,eta_t,alpha_t,c_t, gamma_t, beta_t, B_t, tau_t, height_t, steep_t, w, K)
+    #ll.backward()
+
+    par_dict = {
+        'eta_t' : eta_t,
+        'alpha_t' : alpha_t,
+        'c_t' : c_t,
+        'gamma_t' : gamma_t,
+        'beta_t' : beta_t,
+        'B_t' : B_t,
+        'tau_t' : tau_t,
+        'height_t' : height_t,
+        'steep_t' : steep_t,
+        'X' : X,
+        'w' : w,
+        'K' : K
+    }
+
+    #ll, grads = logpost_wrap(alpha_t, 'alpha_t', par_dict)
+    #opt_res = minimize(logpost_wrap, par_dict['alpha_t'], args=('alpha_t', par_dict), method='L-BFGS-B', jac=True)
+     ### NOT FEASIBLE - CONVERSION BETWEEN TENSORS AND NP ARRAYS PREVENTS IT
+     # SOLUTION: USE torch.optim instead
+
