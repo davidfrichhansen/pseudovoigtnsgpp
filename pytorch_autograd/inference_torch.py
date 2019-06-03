@@ -12,8 +12,8 @@ from scipy.optimize import minimize
 
 def log_posterior(X, eta_t, alpha_t, c_t, gamma_t, beta_t, B_t, tau_t, height_t, steep_t, w, K):
 
-    # TODO: SIGNS OF PRIORS MAY BE WRONG!!
-
+    # TODO: PRIORS MAY BE WRONG!!
+    # TODO: Maybe something about the data types (double vs. float....)
 
     W, N = X.size()
 
@@ -50,10 +50,10 @@ def log_posterior(X, eta_t, alpha_t, c_t, gamma_t, beta_t, B_t, tau_t, height_t,
 
     ll = torch.distributions.normal.Normal(I.double(), 1/tau.double()).log_prob(X.double()).sum()
 
-    prior_alpha = torch.distributions.exponential.Exponential(alpha0).log_prob(alpha).sum() - alpha_t.sum()
-    prior_gamma = torch.distributions.exponential.Exponential(gamma0).log_prob(gamma).sum() - gamma_t.sum()
-    prior_beta = torch.distributions.exponential.Exponential(beta0).log_prob(beta).sum() - beta_t.sum()
-    prior_tau = torch.distributions.gamma.Gamma(a_tau,b_tau).log_prob(tau).sum() + tau_t.sum()
+    prior_alpha = torch.distributions.exponential.Exponential(alpha0).log_prob(alpha).sum() + alpha_t.sum()
+    prior_gamma = torch.distributions.exponential.Exponential(gamma0).log_prob(gamma).sum() + gamma_t.sum()
+    prior_beta = torch.distributions.exponential.Exponential(beta0).log_prob(beta).sum() + beta_t.sum()
+    prior_tau = torch.distributions.gamma.Gamma(a_tau,b_tau).log_prob(tau).sum() + tau_t
 
     prior_eta = torch.log(fs.dgen_sigmoid(eta_t, 1,1)).sum()
     prior_height = torch.log(fs.dgen_sigmoid(height_t, 10,0.5)).sum()
@@ -73,10 +73,11 @@ def logpost_wrap(par_value, par_name, other_pars):
     # wraps the objective function for par_name
     names = funcsigs.signature(log_posterior).parameters.keys()
     par_dict = {n : None for n in names}
+    par_tensor = torch.from_numpy(par_value).requires_grad_(True)
     # forward pass
     for n in names:
         if n == par_name:
-            par_dict[n] = par_value
+            par_dict[n] = par_tensor
         else:
             par_dict[n] = other_pars[n]
 
@@ -85,7 +86,7 @@ def logpost_wrap(par_value, par_name, other_pars):
                        par_dict['steep_t'], par_dict['w'], par_dict['K'])
 
     # backprop
-    par_grad = grad(ll, par_value)[0] # par_value is tensor, which is why this works
+    par_grad = grad(ll, par_tensor)[0] # par_value is tensor, which is why this works
     ll_detach = ll.detach()
     grad_detach = par_grad.detach()
     return -ll_detach.numpy(), -grad_detach.numpy()
@@ -100,7 +101,10 @@ def logpost_wrap(par_value, par_name, other_pars):
 if __name__ == '__main__':
 
      #TODO: CHECK IF TORCH OPTIM SHOULD BE USED INSTEAD - PROBABLY MUCH MORE EFFICIENT AS ALL COMPUTATIONS STAY ON GRAPH AND MAYBE ON GPU
-     # UPDATE: NOT FEASIBLE WITH SCIPY OPTIMIZE
+     # TODO: Optimize all variables at once
+     # TODO: Sampler
+     # TODO: Nonnegativity on B
+
 
 
 
@@ -109,7 +113,7 @@ if __name__ == '__main__':
     W, N = X.size()
     K = 3
 
-    np.random.seed(0)
+    np.random.seed(100)
     eta_t = torch.from_numpy(np.random.uniform(-10, 10, size=(K))).requires_grad_(True)
     alpha_t = torch.from_numpy(np.random.exponential(5, size=(K * N))).requires_grad_(True)
     a, b = (0 - W / 2) / 100, (W - W / 2) / 100
@@ -124,7 +128,6 @@ if __name__ == '__main__':
     steep_t = torch.tensor(truncnorm.rvs(a, b, 25, 10)).requires_grad_(True).double()
 
     w = torch.from_numpy(np.array(list(range(W))))
-
 
 
     # test forward pass
@@ -147,7 +150,24 @@ if __name__ == '__main__':
     }
 
     #ll, grads = logpost_wrap(alpha_t, 'alpha_t', par_dict)
-    #opt_res = minimize(logpost_wrap, par_dict['alpha_t'], args=('alpha_t', par_dict), method='L-BFGS-B', jac=True)
-     ### NOT FEASIBLE - CONVERSION BETWEEN TENSORS AND NP ARRAYS PREVENTS IT
-     # SOLUTION: USE torch.optim instead
+    #opt_res = minimize(logpost_wrap, par_dict['B_t'].detach().numpy(), args=('B_t', par_dict), method='L-BFGS-B', jac=True)
+    opt_pars = ['eta_t', 'alpha_t', 'c_t', 'gamma_t', 'beta_t', 'B_t', 'tau_t', 'height_t','steep_t']
+    max_iter = 50
+    for i in range(max_iter):
+        print(f"\n\nIteration {i} of {max_iter}\n")
+        # iterate over variables to be optimized over
+        for opt_str in opt_pars:
+            print(f"optimizing {opt_str}")
+            # print(opt_str, par_dict[opt_str].shape)
+            # something is wrong with alpha
+            opt_res = minimize(logpost_wrap, par_dict[opt_str].detach().numpy(), args=(opt_str, par_dict), method='L-BFGS-B',
+                               jac=True)
+            if not opt_res.success:
+                print(f"Error when optimizing {opt_str}:\n Failed with message: {opt_res.message}\n")
+            # update value
+            par_dict[opt_str] = torch.from_numpy(opt_res.x).requires_grad_(True)
+
+
+
+
 
