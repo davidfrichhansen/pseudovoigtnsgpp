@@ -68,7 +68,7 @@ def log_posterior(X, eta_t, alpha_t, c_t, gamma_t, beta_t, B_t, tau_t, height_t,
 
     #prior_c = torch.distributions.normal.Normal(mu_c, 1 / tau_c).log_prob(c).sum() + torch.log(fs.dgen_sigmoid(c_t, W, 0.025)).sum()
     #prior_c = fs.truncated_normal_lpdf(c_t, mu_c, 1.0 / tau_c, 0, W).sum()
-    prior_c = fs.truncated_normal_lpdf(c, mu_c, 1.0 / tau_c, 0, W).sum() + torch.log(fs.dgen_sigmoid(c_t, W, 0.025)).sum()
+    prior_c = fs.truncated_normal_lpdf(c, mu_c, 1.0 / tau_c, 0, torch.tensor(W).double()).sum() + torch.log(fs.dgen_sigmoid(c_t, W, 0.025)).sum()
     #prior_delta = torch.distributions.Exponential(delta0).log_prob(delta).sum() + delta_t.sum()
     prior_delta = fs.truncated_normal_lpdf(delta, torch.tensor(10.0).double(), torch.tensor(1.0/10.0).double(), torch.tensor(0.0).double(), torch.tensor(float('Inf')).double()) +\
         delta_t.sum()
@@ -139,6 +139,7 @@ if __name__ == '__main__':
 
 
     optimize = False
+    torch_optim = True
 
 
     mats = loadmat('/home/david/Documents/Universitet/5_aar/PseudoVoigtMCMC/implementation/data/simulated.mat')
@@ -151,7 +152,7 @@ if __name__ == '__main__':
     alpha_t = torch.from_numpy(np.random.exponential(.5, size=(K * N))).requires_grad_(True)
     a, b = (0 - W / 2) / 100, (W - W / 2) / 100
     #c_t = torch.from_numpy(truncnorm.rvs(a, b, 100, size=(K))).requires_grad_(True)
-    c_t = torch.tensor([110.0]).double().requires_grad_(True)
+    c_t = torch.tensor([5.0]).double().requires_grad_(True)
     gamma_t = torch.from_numpy(np.random.exponential(.75, size=(K))).requires_grad_(True)
     beta_t = torch.from_numpy(np.random.exponential(5., size=(N))).requires_grad_(True)
     B_t = torch.from_numpy(np.random.normal(0, 1, size=W)).requires_grad_(True)
@@ -233,7 +234,7 @@ if __name__ == '__main__':
         V = fs.pseudo_voigt(w.double(), c, gamma, eta)
         I = torch.mm(V,alpha) + torch.ger(B, beta)
 
-    else: # sample
+    elif torch_optim:
         pars = np.array([par_dict[name].detach().numpy() for name in opt_pars])
         pars_cat = np.array([])
         for par in pars:
@@ -249,9 +250,14 @@ if __name__ == '__main__':
         #ll, grads = logpost_wrap_all(pars_cat)
         #sampler.sample()
 
-        optimizer = LBFGS([par_dict[name] for name in opt_pars], lr=0.2)
+        optimizer = LBFGS([par_dict['eta_t'], par_dict['alpha_t'], par_dict['c_t'], par_dict['gamma_t'],
+                        par_dict['beta_t'], par_dict['B_t'], par_dict['tau_t'], par_dict['height_t'],
+                       par_dict['steep_t'], par_dict['delta_t']], lr=2)
 
-        for i in range(15):
+        opt_tensors = [par_dict['eta_t'], par_dict['alpha_t'], par_dict['c_t'], par_dict['gamma_t'],
+                        par_dict['beta_t'], par_dict['B_t'], par_dict['tau_t'], par_dict['height_t'],
+                       par_dict['steep_t'], par_dict['delta_t']]
+        for i in range(20):
             print(f"Iteration {i}\n")
             def closure():
                 optimizer.zero_grad()
@@ -261,6 +267,7 @@ if __name__ == '__main__':
                 #print(ll)
                 #print(fs.general_sigmoid(par_dict['c_t'], W, 0.025))
                 ll.backward()
+                #print([tensor.grad for tensor in opt_tensors])
                 return ll
             optimizer.step(closure)
 
@@ -296,3 +303,13 @@ if __name__ == '__main__':
         plt.plot(B.detach().numpy())
         plt.title('Learned background')
         plt.show()
+    else: # sample
+        pars = np.array([par_dict[name].detach().numpy() for name in opt_pars])
+        pars_cat = np.array([])
+        for par in pars:
+            try:
+                pars_cat = np.concatenate((pars_cat, par))
+            except ValueError:  # ugh
+                pars_cat = np.concatenate((pars_cat, [par]))
+
+        #sampler = NUTS(...) # Doesnt work

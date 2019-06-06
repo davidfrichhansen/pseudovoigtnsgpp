@@ -59,7 +59,7 @@ def pseudo_voigt(w,c,gamma,eta):
 def truncated_normal_lpdf(x, mu, sigma, a, b):
     dist = torch.distributions.Normal(mu.float(),sigma.float())
     assert a < b
-    if torch.isinf(b.double()):
+    if torch.isinf(b):
         b_tmp = torch.tensor(1.0).double()
     else:
         b_tmp = dist.cdf(b)
