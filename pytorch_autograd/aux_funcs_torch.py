@@ -19,7 +19,7 @@ def gibbs_kernel(x,l,sigma):
     prefactor = torch.sqrt(2 * lij / l_sums)
     exponential = torch.exp(-ximjsq / l_sums)
 
-    K = sigma*sigma*prefactor*exponential + 1e-6*torch.eye(W).double()
+    K = sigma*sigma*prefactor*exponential + 1e-4*torch.eye(W).double()
 
     return K
 
@@ -54,6 +54,30 @@ def pseudo_voigt(w,c,gamma,eta):
     return V
 
 
+
+##### DISTRIBUTIONS
+def truncated_normal_lpdf(x, mu, sigma, a, b):
+    dist = torch.distributions.Normal(mu.float(),sigma.float())
+    assert a < b
+    if torch.isinf(b.double()):
+        b_tmp = torch.tensor(1.0).double()
+    else:
+        b_tmp = dist.cdf(b)
+
+    probs =  dist.log_prob(x) - (torch.log(sigma) + torch.log(b_tmp - dist.cdf(a)))
+    probs[x.double() >= b] = torch.log(torch.tensor(0.0))
+    probs[x.double() <= a] = torch.log(torch.tensor(0.0))
+    return probs.double()
+
+def truncated_normal_pdf(x,mu,sigma,a,b):
+    num = torch.rsqrt(torch.tensor(2*np.pi))*torch.exp(-0.5 * ((x-mu) / sigma)**2)
+    dist = torch.distributions.Normal(mu.float(), sigma.float())
+    den = sigma*(dist.cdf(b)-dist.cdf(a))
+    probs = num / den
+    probs[x.double() <= a] = torch.tensor(0.0)
+    probs[x.double() >= b] = torch.tensor(0.0)
+    return probs
+
 ##### TRANSFORMATIONS
 
 def general_sigmoid(x,L,k):
@@ -66,10 +90,7 @@ def dgen_sigmoid(x,L,k):
 
 
 #### LINK FUNCTIONS
-def exp_to_gauss(h,pars):
-    assert len(pars) == 2
-    sigma = pars[0]
-    lambda_ = pars[1]
+def exp_to_gauss(h,sigma, lambda_):
 
     inner = 1e-12 + .5 - .5*torch.erf(h / (np.sqrt(2) *sigma))
 
