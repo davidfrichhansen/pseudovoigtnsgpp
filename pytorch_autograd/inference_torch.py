@@ -15,63 +15,65 @@ def log_posterior(X, eta_t, alpha_t, c_t, gamma_t, beta_t, B_t, tau_t, height_t,
 
     W, N = X.size()
 
-    alpha0 = torch.tensor(3.0)
-    mu_c = torch.tensor(0.)
-    tau_c = torch.tensor(1.)
-    gamma0 = torch.tensor(20.)
-    beta0 = torch.tensor(1.)
+    alpha0 = torch.tensor(15.0)
+    mu_c = torch.tensor(W/2.)
+    tau_c = torch.tensor(.1)
+
+    beta0 = torch.tensor(.5)
     a_tau = torch.tensor(7.5)
     b_tau = torch.tensor(1.0)
 
-    #delta0 = torch.tensor(20.)
-
-    sigma = torch.tensor(5.)
 
 
-    # parameter transformations
+    l_base = torch.tensor(1e-6).double().requires_grad_(False)
+
+    # parameter transformations8
     alpha = torch.exp(alpha_t).reshape(K,N)
     gamma = torch.exp(gamma_t)
     eta = fs.general_sigmoid(eta_t, 1, 1)
     beta = torch.exp(beta_t)
-    c = fs.general_sigmoid(c_t, W, 0.025) # <- maybe 0.25 should be changed
+    c = fs.general_sigmoid(c_t, W, 0.025)
     tau = torch.exp(tau_t)
     height = fs.general_sigmoid(height_t, 100, 0.07)
     steep = fs.general_sigmoid(steep_t, 75, 0.25)
     delta = torch.exp(delta_t)
 
-    l = fs.length_scale(c,gamma,steep,w,height)
-    #l = fs.length_scale(c_t, delta, steep_t, w, height)
-    covB = fs.gibbs_kernel(w.double(),l.double(),sigma.double())
+    l = fs.length_scale(c,gamma,steep,w,height, base=l_base)
+
+    sigma = tau
+
+
+    covB = fs.gibbs_kernel(w,l,sigma)
     cholB = torch.cholesky(covB)
 
 
     B = torch.mv(cholB, B_t)
 
+
+
+
     # likelihood
-    V = fs.pseudo_voigt(w.double(),c.double(),gamma.double(),eta.double())
-    #V = fs.pseudo_voigt(w.double(), c_t.double(), gamma.double(), eta.double())
+    V = fs.pseudo_voigt(w,c,gamma,eta)
     I = torch.mm(V,alpha) + torch.ger(B,beta)
 
-    ll = torch.distributions.normal.Normal(I.double(), 1/tau.double()).log_prob(X.double()).sum()
+    ll = torch.distributions.normal.Normal(I, 1/tau).log_prob(X).sum()
 
     prior_alpha = torch.distributions.exponential.Exponential(alpha0).log_prob(alpha).sum() + alpha_t.sum()
-    #prior_gamma = torch.distributions.exponential.Exponential(gamma0.double()).log_prob(gamma.double()).sum() + gamma_t.sum()
-    prior_gamma = fs.truncated_normal_lpdf(gamma, torch.tensor(50.).double(), torch.tensor(1.0/10.0).double(), torch.tensor(0.0).double(), torch.tensor(float('Inf')).double()).sum() + \
+    prior_gamma = fs.truncated_normal_lpdf(gamma, torch.tensor(10.).double(), torch.tensor(1.0/10.0).double(), torch.tensor(0.0).double(), torch.tensor(float('Inf')).double()).sum() + \
         gamma_t.sum()
+
     prior_beta = torch.distributions.exponential.Exponential(beta0).log_prob(beta).sum() + beta_t.sum()
     prior_tau = torch.distributions.gamma.Gamma(a_tau,b_tau).log_prob(tau).sum() + tau_t
     prior_eta = torch.log(fs.dgen_sigmoid(eta_t, 1,1)).sum()
     prior_height = torch.log(fs.dgen_sigmoid(height_t, 100,0.07)).sum()
     prior_steep = fs.truncated_normal_lpdf(steep, torch.tensor(25.0).double(),torch.tensor(5.).double(),
-                                           torch.tensor(0.).double(),torch.tensor(75.).double()) + fs.dgen_sigmoid(steep_t, 75, 0.25)
+                                           torch.tensor(0.).double(),torch.tensor(75.).double()) + torch.log(fs.dgen_sigmoid(steep_t, 75, 0.25))
     prior_B = -0.5 * torch.dot(B_t,B_t)
-
-    #prior_c = torch.distributions.normal.Normal(mu_c, 1 / tau_c).log_prob(c).sum() + torch.log(fs.dgen_sigmoid(c_t, W, 0.025)).sum()
-    #prior_c = fs.truncated_normal_lpdf(c_t, mu_c, 1.0 / tau_c, 0, W).sum()
     prior_c = fs.truncated_normal_lpdf(c, mu_c, 1.0 / tau_c, 0, torch.tensor(W).double()).sum() + torch.log(fs.dgen_sigmoid(c_t, W, 0.025)).sum()
-    #prior_delta = torch.distributions.Exponential(delta0).log_prob(delta).sum() + delta_t.sum()
-    prior_delta = fs.truncated_normal_lpdf(delta, torch.tensor(10.0).double(), torch.tensor(1.0/10.0).double(), torch.tensor(0.0).double(), torch.tensor(float('Inf')).double()) +\
+
+    prior_delta = fs.truncated_normal_lpdf(delta, torch.tensor(10.0).double(), torch.tensor(1.0/10.0).double(), torch.tensor(0.0).double(), torch.tensor(float('Inf')).double()).sum()+\
         delta_t.sum()
+
     logpost = ll + prior_alpha + prior_gamma + prior_beta + prior_tau + prior_eta + \
               prior_height + prior_B + prior_c + prior_steep + prior_delta
 
@@ -108,7 +110,7 @@ def logpost_wrap_all(pars_np):
 
 
 
-    return ll.detach().numpy(), grads.detach().numpy()
+    return -ll.detach().numpy(), -grads.detach().numpy()
 
 
 def unpack_pars(pars_np, dims):
@@ -131,31 +133,28 @@ def unpack_pars(pars_np, dims):
 
 
 if __name__ == '__main__':
+    # TODO: Check om den løsning vi gerne vil have har bedre logpost end den lærte
+    # TODO: Hold parametre konstante enkeltvis - det er meget følsomt overfor startgæt i c - baseline begynder at forklare peaks
+    #
 
-     #TODO: CHECK IF TORCH OPTIM SHOULD BE USED INSTEAD - PROBABLY MUCH MORE EFFICIENT AS ALL COMPUTATIONS STAY ON GRAPH AND MAYBE ON GPU
-     # TODO: Optimize all variables at once
-     # TODO: Sampler
-     # TODO: Nonnegativity on B
-
-
-    optimize = False
-    torch_optim = True
+    optimize = True
+    torch_optim = False
 
 
-    mats = loadmat('/home/david/Documents/Universitet/5_aar/PseudoVoigtMCMC/implementation/data/simulated.mat')
-    X = torch.from_numpy(mats['X'].T).float()
+    mats = loadmat('/home/david/Documents/Universitet/5_aar/PseudoVoigtMCMC/implementation/data/25x25x300_K1_2hot.mat')
+    X = torch.from_numpy(mats['X'].T).double()
     W, N = X.size()
     K = 1
 
-    np.random.seed(1001)
-    eta_t = torch.from_numpy(np.random.uniform(-10, 10, size=(K))).requires_grad_(True)
-    alpha_t = torch.from_numpy(np.random.exponential(.5, size=(K * N))).requires_grad_(True)
+    np.random.seed(5)
+    eta_t = torch.from_numpy(np.random.uniform(-10, 10, size=(K))).double().requires_grad_(True)
+    alpha_t = torch.from_numpy(np.random.exponential(1, size=(K * N))).double().requires_grad_(True)
     a, b = (0 - W / 2) / 100, (W - W / 2) / 100
-    #c_t = torch.from_numpy(truncnorm.rvs(a, b, 100, size=(K))).requires_grad_(True)
-    c_t = torch.tensor([5.0]).double().requires_grad_(True)
-    gamma_t = torch.from_numpy(np.random.exponential(.75, size=(K))).requires_grad_(True)
-    beta_t = torch.from_numpy(np.random.exponential(5., size=(N))).requires_grad_(True)
-    B_t = torch.from_numpy(np.random.normal(0, 1, size=W)).requires_grad_(True)
+    c_t = torch.from_numpy(truncnorm.rvs(a, b, 100, size=(K))).requires_grad_(True)
+    #c_t = torch.tensor([260]).double().requires_grad_(True)
+    gamma_t = torch.from_numpy(np.random.exponential(.75, size=(K))).double().requires_grad_(True)
+    beta_t = torch.from_numpy(np.random.exponential(5., size=(N))).double().requires_grad_(True)
+    B_t = torch.from_numpy(np.random.normal(0, 1, size=W)).double().requires_grad_(True)
     tau_t = torch.tensor(np.random.gamma(0.2, 0.3)).double().requires_grad_(True)
     height_t = torch.tensor(np.random.uniform(0.01, 10)).double().requires_grad_(True)
     delta_t = torch.distributions.Exponential(.75).sample((K,)).double().requires_grad_(True)
@@ -167,8 +166,6 @@ if __name__ == '__main__':
 
 
     # test forward pass
-    #ll = log_posterior(X,eta_t,alpha_t,c_t, gamma_t, beta_t, B_t, tau_t, height_t, steep_t, w, K)
-    #ll.backward()
 
     par_dict = {
         'eta_t' : eta_t,
@@ -186,7 +183,7 @@ if __name__ == '__main__':
         'K' : K
     }
 
-    opt_pars = ['eta_t', 'alpha_t', 'c_t', 'gamma_t', 'beta_t', 'B_t', 'tau_t', 'height_t', 'steep_t', 'delta_t']
+    opt_pars = ['eta_t', 'alpha_t', 'c_t', 'gamma_t', 'beta_t','B_t', 'tau_t', 'height_t', 'steep_t', 'delta_t']
 
 
 
@@ -203,6 +200,7 @@ if __name__ == '__main__':
 
                 opt_res = minimize(logpost_wrap, par_dict[opt_str].detach().numpy(), args=(opt_str, par_dict), method='L-BFGS-B',
                                    jac=True)
+                #print(par_dict['c_t'])
                 if not opt_res.success:
                     count += 1
                     print(f"Error when optimizing {opt_str}:\n Failed with message: {opt_res.message}\n")
@@ -234,6 +232,18 @@ if __name__ == '__main__':
         V = fs.pseudo_voigt(w.double(), c, gamma, eta)
         I = torch.mm(V,alpha) + torch.ger(B, beta)
 
+        X_prob = torch.distributions.Normal(I, torch.tensor(1/tau)).log_prob(X)
+        plt.plot(V.detach().numpy())
+        plt.title('Pseudo voigt component')
+        plt.show()
+
+        plt.plot(l.detach().numpy())
+        plt.title('Learned length scale')
+        plt.show()
+
+        plt.plot(B.detach().numpy())
+        plt.title('Learned background')
+        plt.show()
     elif torch_optim:
         pars = np.array([par_dict[name].detach().numpy() for name in opt_pars])
         pars_cat = np.array([])
@@ -303,7 +313,7 @@ if __name__ == '__main__':
         plt.plot(B.detach().numpy())
         plt.title('Learned background')
         plt.show()
-    else: # sample
+    else:
         pars = np.array([par_dict[name].detach().numpy() for name in opt_pars])
         pars_cat = np.array([])
         for par in pars:
@@ -312,4 +322,47 @@ if __name__ == '__main__':
             except ValueError:  # ugh
                 pars_cat = np.concatenate((pars_cat, [par]))
 
-        #sampler = NUTS(...) # Doesnt work
+        opt_res = minimize(logpost_wrap_all, pars_cat, method='L-BFGS-B', jac=True)
+        assert opt_res.success
+        unpacked_pars = unpack_pars(opt_res.x, dims)
+
+
+        unpacked_pars_dict = {name : unpacked_pars[idx] for idx, name in enumerate(opt_pars)}
+
+        alpha = torch.exp(unpacked_pars_dict['alpha_t']).reshape(K, N)
+        gamma = torch.exp(unpacked_pars_dict['gamma_t'])
+        eta = fs.general_sigmoid(unpacked_pars_dict['eta_t'], 1, 1)
+        beta = torch.exp(unpacked_pars_dict['beta_t'])
+        c = fs.general_sigmoid(unpacked_pars_dict['c_t'], W, 0.025)
+        tau = torch.exp(unpacked_pars_dict['tau_t'])
+        height = fs.general_sigmoid(unpacked_pars_dict['height_t'], 100, 0.07)
+        steep = fs.general_sigmoid(unpacked_pars_dict['steep_t'], 75, 0.25)
+
+        l = fs.length_scale(c, gamma, steep, w, height)
+        covB = fs.gibbs_kernel(w, l, torch.tensor(1).double())
+        cholB = torch.cholesky(covB)
+
+        B = torch.mv(cholB, unpacked_pars_dict ['B_t'])
+
+        delta = torch.exp(unpacked_pars_dict ['delta_t'])
+
+        V = fs.pseudo_voigt(w, c, gamma, eta)
+        I = torch.mm(V, alpha) + torch.ger(B, beta)
+
+        plt.plot(V.detach().numpy())
+        plt.title('Pseudo voigt component')
+        plt.show()
+
+        plt.plot(l.detach().numpy())
+        plt.title('Learned length scale')
+        plt.show()
+
+        plt.plot(B.detach().numpy())
+        plt.title('Learned background')
+        plt.show()
+
+        plt.matshow(I.detach().numpy())
+        plt.title('I')
+        plt.show()
+
+

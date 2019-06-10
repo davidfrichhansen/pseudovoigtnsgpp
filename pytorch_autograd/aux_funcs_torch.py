@@ -19,7 +19,7 @@ def gibbs_kernel(x,l,sigma):
     prefactor = torch.sqrt(2 * lij / l_sums)
     exponential = torch.exp(-ximjsq / l_sums)
 
-    K = sigma*sigma*prefactor*exponential + 1e-4*torch.eye(W).double()
+    K = sigma*sigma*prefactor*exponential + 1e-8*torch.eye(W).double()
 
     return K
 
@@ -30,9 +30,9 @@ def length_scale(c,gamma,steep,w,height,base=1e-6):
     l = base*torch.ones(W).double()
 
     for idx, k in enumerate(range(0,2*K-1, 2)):
-        endpoint1 = (c[idx] - gamma[idx]).double()
-        endpoint2 = (c[idx] + gamma[idx]).double()
-        l = l + height.double() * (torch.tanh((w.double() - endpoint1)*steep.double()) - torch.tanh((w.double()-endpoint2)*steep.double()))
+        endpoint1 = (c[idx] - gamma[idx])
+        endpoint2 = (c[idx] + gamma[idx])
+        l = l + height * (torch.tanh((w - endpoint1)*steep) - torch.tanh((w-endpoint2)*steep))
 
     return l
 
@@ -87,6 +87,17 @@ def general_sigmoid(x,L,k):
 def dgen_sigmoid(x,L,k):
     grad = torch.exp(-k*x)*k*L / ((1+torch.exp(-k*x))**2)
     return grad
+
+def inv_gen_sigmoid(x,L,k):
+    val = 1/ k * (torch.log(x) - torch.log(L-x))
+    return val
+
+"""
+
+def inv_logistic(p, L, k, x0=0):
+    val = 1 / k * (np.log(p) + k*x0 - np.log(L-p))
+    return val
+"""
 
 
 #### LINK FUNCTIONS
