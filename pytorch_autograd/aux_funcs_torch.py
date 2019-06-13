@@ -43,15 +43,26 @@ def pseudo_voigt(w,c,gamma,eta):
     W = w.size()[0]
     K = c.size()[0]
 
-    wc = (w.view(-1,1).repeat(1,K).view(W,K) - c)**2
+    #wc = (w.view(-1,1).repeat(1,K).view(W,K) - c) / gamma.view(-1,1).repeat(1,W).view(W,K)
+    xdata = w.repeat(K,1)
+    c_arr = torch.unsqueeze(c,1).repeat(1,W)
+    gamma_arr = torch.unsqueeze(gamma,1).repeat(1,W)
+    eta_arr = torch.unsqueeze(eta,1).repeat(1,W)
 
-    gamma_arr = gamma.view(-1,1).repeat(1,W).view(W,K)
+    diff = xdata - c_arr
+    kern = diff / gamma_arr
 
-    L = gamma_arr * np.pi**(-1) / (wc + gamma_arr*gamma_arr)
-    G = 1.0 / (np.sqrt(2 * np.pi) * gamma_arr) * torch.exp(-wc / (2 * gamma_arr * gamma_arr))
-    V = eta * L + (1-eta) * G
+    diff2 = kern*kern
 
-    return V
+    L = 1.0 / (1.0 + diff2)
+
+    G_kern = -torch.log(torch.tensor(2.0)) * diff2
+
+    G = torch.exp(G_kern)
+
+    V = eta_arr * L + (1-eta_arr) * G
+
+    return torch.t(V)
 
 
 
