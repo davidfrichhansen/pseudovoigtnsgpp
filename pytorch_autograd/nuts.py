@@ -7,7 +7,7 @@ class NUTS:
     Implements the efficient NUTS sampler with dual averaging (algorithm 6) from Hoffman and Gelman (2014)
     """
 
-    def __init__(self, logp, M, M_adapt, theta0, delta=0.63, debug=False, delta_max=1000.0):
+    def __init__(self, logp, M, M_adapt, theta0, delta=0.63, debug=False, delta_max=1000.0, start_eps=None):
         """
         Initialize
         :param logp:        Callable that takes parameters of target distribution and return log probability and
@@ -30,6 +30,7 @@ class NUTS:
         self.delta_max = delta_max
         self.accepted = 0
         self.eps_list = np.zeros(M_adapt + 1)
+        self.start_eps = start_eps
 
         # maybe do some smart stuff, pickling, sqlite etc.
         self.samples = np.zeros((M, len(theta0)))
@@ -173,7 +174,12 @@ class NUTS:
         M_adapt = self.M_adapt
         theta0 = self.theta0
         logp, grad = f(theta0)
-        epsilon = self.epsilon_heuristic(theta0, logp, grad)
+        if self.start_eps is None:
+            epsilon = self.epsilon_heuristic(theta0, logp, grad)
+        else:
+            print(f"Using fixed stepsize: {self.start_eps}\n")
+            epsilon = self.start_eps
+
         mu = np.log(10 * epsilon)
         logeps_bar = 0
         H_bar = 0
@@ -230,7 +236,7 @@ class NUTS:
                 j = j + 1
 
             # dual averaging
-            if m <= M_adapt:
+            if m <= M_adapt and self.start_eps is None:
                 H_bar = (1 - 1.0 / (m + t0)) * H_bar + 1 / (m + t0) * (self.delta - alpha / n_alpha)
                 logeps = mu - np.sqrt(m) / gamma * H_bar
                 epsilon = np.exp(logeps)
@@ -242,7 +248,7 @@ class NUTS:
                 else:
                     epsilon = np.exp(logeps_bar)
 
-            if plot_eps and m == M_adapt:
+            if plot_eps and m == M_adapt and self.start_eps is None:
                 plt.plot(self.eps_list)
                 plt.title("Epsilon convergence during adaptation")
                 plt.xlabel("Iteration")
@@ -264,3 +270,93 @@ class NUTS:
         print()
         print()
 
+
+class Metropolis:
+
+    def __init__(self, logp, theta0, proposal_dist, M=1000, burn=0, thin=0):
+        self.logp = logp
+        self.proposal_dist = proposal_dist
+        self.M = M
+        self.theta0 = theta0
+        self.thin = thin
+        self.samples = np.zeros((M, len(theta0)))
+        self.burn = burn
+        self.acc_rate = 0
+
+
+
+    def sample(self, *prop_args):
+        f = self.logp
+        prop_dist = self.proposal_dist
+        current = self.theta0
+
+        accept = 0
+        for m in range(self.M):
+            if m % 100 == 0:
+                print(f"Iteration {m} of {self.M}")
+            # current logp
+            logp_old = f(current)
+
+            # proposal
+            proposal = prop_dist(current, *prop_args)
+
+            logp_new = f(proposal)
+
+            a = min(0, logp_new - logp_old)
+
+            if np.random.rand() < np.exp(a):
+                self.samples[m,:] = proposal
+                current = proposal
+                accept += 1
+            else:
+                self.samples[m,:] = current
+
+            # remove burnin
+            if self.burn != 0:
+                self.samples = self.samples[self.burn:, :]
+
+            if self.thin != 0:
+                self.samples[::self.thin, :]
+
+            self.acc_rate = accept / self.M
+
+
+
+if __name__ == '__main__':
+    # quick metropolis test
+    a = 0
+    b = 300
+
+    A = np.array([
+        [4.0,2],
+        [2,3]
+    ])
+    mu = np.array([1,1])
+    Ai = np.linalg.inv(A)
+    def logp(x):
+        return -0.5*(x-mu).T@Ai@(x-mu)
+
+    def logp_grad(x):
+        val = -0.5*(x-mu)@Ai@(x-mu)
+        grad = -Ai@(x-mu)
+
+        return val,grad
+
+    def proposal(x):
+        return np.random.uniform(-10,10,size=len(x))
+
+
+    sampler = Metropolis(logp, np.array([0,0]).T, proposal, M=100000)
+
+    sampler.sample()
+    plt.scatter(sampler.samples[:,0], sampler.samples[:,1])
+    plt.title('Metropolis')
+    plt.show()
+
+
+    sampler = NUTS(logp_grad, M=100000, M_adapt=10000, theta0=np.array([0,0]).T, start_eps=0.8)
+    sampler.sample()
+
+    plt.scatter(sampler.samples[:,0], sampler.samples[:,1])
+    plt.title('NUTS')
+    plt.show()

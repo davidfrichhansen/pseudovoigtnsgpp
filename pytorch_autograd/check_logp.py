@@ -85,7 +85,13 @@ plt.show()
 
 residuals = my_I - X ### hmmm.... => Normalization
 
+plt.imshow(my_I)
+plt.title('Computed I')
+plt.show()
 
+plt.imshow(residuals)
+plt.title('Residuals on I')
+plt.show()
 
 tat = torch.log(ta)
 tgammat = torch.log(tgamma)

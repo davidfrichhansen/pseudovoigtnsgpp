@@ -1,6 +1,6 @@
 import torch
 import numpy as np
-
+import matplotlib.pyplot as plt
 
 ##### NON STATIONARY KERNEl
 def gibbs_kernel(x,l,sigma):
@@ -19,7 +19,7 @@ def gibbs_kernel(x,l,sigma):
     prefactor = torch.sqrt(2 * lij / l_sums)
     exponential = torch.exp(-ximjsq / l_sums)
 
-    K = sigma*sigma*prefactor*exponential + 1e-8*torch.eye(W).double()
+    K = sigma*sigma*prefactor*exponential + 1e-4*torch.eye(W).double()
 
     return K
 
@@ -32,10 +32,28 @@ def length_scale(c,gamma,steep,w,height,base=1e-6):
     for idx, k in enumerate(range(0,2*K-1, 2)):
         endpoint1 = (c[idx] - gamma[idx])
         endpoint2 = (c[idx] + gamma[idx])
-        l = l + height * (torch.tanh((w - endpoint1)*steep) - torch.tanh((w-endpoint2)*steep))
+        l = l + (height-base) * (torch.tanh((w - endpoint1)*steep) - torch.tanh((w-endpoint2)*steep))
 
     return l
 
+
+def plot_gp_samples(w,c,gamma,steep,height,base,sigma):
+    l = length_scale(c,gamma,steep,w,height,base)
+
+    K = gibbs_kernel(w,l,sigma)
+
+    plt.plot(l.numpy())
+    plt.title('Length scale')
+    plt.show()
+
+    #samples = torch.cholesky(K).numpy() @ np.random.randn(w.size()[0], 1)
+    samples = np.random.multivariate_normal(np.zeros(300), K.numpy(), size=3)
+
+    plt.plot(samples.T)
+    plt.axvline(c - gamma, lw=2, ls='--', c='k')
+    plt.axvline(c + gamma, lw=2, ls='--', c='k')
+    plt.title('Prior samples')
+    plt.show()
 
 
 ##### PSEUDO VOIGT
