@@ -1,6 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
-
+np.seterr('raise')
 
 class NUTS:
     """
@@ -186,9 +186,10 @@ class NUTS:
         H_bar = 0
         gamma = 0.05
         for m in range(1, M):
-            if m % 100 == 0:
+            if m % 1 == 0:
                 print("%d iterations completed\n" % m)
                 print("likelihood : %f" % logp)
+                print(f"Epsilon: {epsilon}")
             # resample momentum
             r0 = np.random.randn(len(theta0))
             # evaluate probability

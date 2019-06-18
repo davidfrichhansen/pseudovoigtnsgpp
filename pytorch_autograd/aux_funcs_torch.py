@@ -30,8 +30,8 @@ def length_scale(c,gamma,steep,w,height,base=1e-6):
     l = base*torch.ones(W).double()
 
     for idx, k in enumerate(range(0,2*K-1, 2)):
-        endpoint1 = (c[idx] - gamma[idx])
-        endpoint2 = (c[idx] + gamma[idx])
+        endpoint1 = (c[idx] - gamma[idx] - 1e-6)
+        endpoint2 = (c[idx] + gamma[idx] + 1e-6)
         l = l + (height-base) * (torch.tanh((w - endpoint1)*steep) - torch.tanh((w-endpoint2)*steep))
 
     return l

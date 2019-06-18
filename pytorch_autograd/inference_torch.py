@@ -34,14 +34,23 @@ def logpost_wrap(par_value, par_name, other_pars):
     return -ll_detach.numpy(), -grad_detach.numpy()
 
 def logpost_wrap_all(pars_np, dims, pars_dict):
+    """
+    DEPRECATED!
+    :param pars_np:
+    :param dims:
+    :param pars_dict:
+    :return:
+    """
 
 
     # must be in this order
-    # opt_pars = ['beta_t', 'B_t', 'steep_t', 'height_t', 'gamma_t', 'alpha_t', 'eta_t', 'tau_t']
+    # opt_pars = ['beta_t', 'B_t', 'steep_t', 'height_t', 'gamma_t', 'alpha_t', 'eta_t','c_t']
     pars = unpack_pars(pars_np, dims)
-    ll = log_posterior(X, pars[6], pars[5], pars_dict['c_t'], pars[4], pars[0], pars[1], par_dict['tau_t'], pars[3], pars[2], w, K)
+    #print(pars[4])
+    ll = log_posterior(X, pars[6], pars[5], pars[7], pars[4], pars[0], pars[1], pars_dict['tau_t'], pars[3], pars[2], w, K)
     grads_split = grad(ll, pars)
     grads = torch.cat(grads_split, 0)
+    #print(torch.max(torch.abs(grads)))
 
 
 
@@ -49,6 +58,12 @@ def logpost_wrap_all(pars_np, dims, pars_dict):
 
 
 def unpack_pars(pars_np, dims):
+    """
+    DEPRECATED
+    :param pars_np:
+    :param dims:
+    :return:
+    """
     # takes a long array of parameters and returns a tuple of tensors
     # assumes 'dims' is a global list of shapes of the parameters in order
     pars = list()
@@ -86,7 +101,7 @@ def log_posterior(X, eta_t, alpha_t, c_t, gamma_t, beta_t, B_t, tau_t, height_t,
 
     # parameter transformations8
     alpha = torch.exp(alpha_t).reshape(K,N)
-    gamma = torch.exp(gamma_t)
+    gamma = torch.exp(gamma_t) + 1e-8
     eta = fs.general_sigmoid(eta_t, 1, 1)
     beta = torch.exp(beta_t)
 
@@ -131,11 +146,8 @@ def log_posterior(X, eta_t, alpha_t, c_t, gamma_t, beta_t, B_t, tau_t, height_t,
     prior_B = -0.5 * torch.dot(B_t,B_t)
     prior_c = fs.truncated_normal_lpdf(c, mu_c, 1.0 / tau_c, 0, torch.tensor(W).double()).sum() + torch.log(fs.dgen_sigmoid(c_t, W, 0.025)).sum()
 
-    #prior_delta = fs.truncated_normal_lpdf(delta, torch.tensor(10.0).double(), torch.tensor(1.0/10.0).double(), torch.tensor(0.0).double(), torch.tensor(float('Inf')).double()).sum()+\
-    #   delta_t.sum()
-
     logpost = ll + prior_alpha + prior_gamma + prior_beta + prior_tau + prior_eta + \
-              prior_height + prior_B + prior_c + prior_steep #+ prior_delta
+              prior_height + prior_B + prior_c + prior_steep
 
     return logpost
 
@@ -241,7 +253,7 @@ if __name__ == '__main__':
         'K' : K
     }
 
-    opt_pars = ['beta_t','B_t', 'steep_t', 'height_t', 'gamma_t', 'alpha_t', 'eta_t', 'tau_t']
+    opt_pars = ['beta_t','B_t', 'steep_t', 'height_t', 'gamma_t', 'alpha_t', 'eta_t', 'tau_t','c_t']
 
 
 
@@ -335,23 +347,17 @@ if __name__ == '__main__':
         plt.show()
     else: # sample
         # pack parameters
-        dims = [par_dict[name].shape for name in opt_pars if name != 'c_t' and name != 'tau_t']
-
-        pars = np.array([par_dict[name].detach().numpy() for name in opt_pars if name != 'c_t' and name != 'tau_t'])
-        pars_cat = np.array([])
-        for par in pars:
-            try:
-                pars_cat = np.concatenate((pars_cat, par))
-            except ValueError:  # ugh
-                pars_cat = np.concatenate((pars_cat, par.ravel()))
-
-        sampler = NUTS(logpost_wrap_all, 1000, 500, pars_cat, dims, par_dict, start_eps=10)
-
-        sampler.sample(override_M=1000, override_Madapt=500)
 
         # TODO: Sample one at a time with NUTS, c with M-H
-
-
+        """  
+        0.5) Make new wrapper
+        1) Make epsilon dictionary    
+        2) Do dual averaging for each variable independently
+        3) Store in epsilon dictionary
+        4) Draw 1 (!!) sample for each variable with their respective epsilon
+        5) Save samples in array
+        6) M-H on c
+        """
 
         """
         # try metropolis on c
