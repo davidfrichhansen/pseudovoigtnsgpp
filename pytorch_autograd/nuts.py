@@ -7,7 +7,7 @@ class NUTS:
     Implements the efficient NUTS sampler with dual averaging (algorithm 6) from Hoffman and Gelman (2014)
     """
 
-    def __init__(self, logp, M, M_adapt, theta0, delta=0.63, debug=False, delta_max=1000.0, start_eps=None):
+    def __init__(self, logp, M, M_adapt, theta0, *logp_args, delta=0.63, debug=False, delta_max=1000.0, start_eps=None):
         """
         Initialize
         :param logp:        Callable that takes parameters of target distribution and return log probability and
@@ -31,6 +31,7 @@ class NUTS:
         self.accepted = 0
         self.eps_list = np.zeros(M_adapt + 1)
         self.start_eps = start_eps
+        self.logpargs = logp_args
 
         # maybe do some smart stuff, pickling, sqlite etc.
         self.samples = np.zeros((M, len(theta0)))
@@ -51,7 +52,7 @@ class NUTS:
         theta_bar = theta + epsilon * r_bar
         # recompute gradient
 
-        logp_new, grad_new = f(theta_bar)
+        logp_new, grad_new = f(theta_bar, *self.logpargs)
         r_bar = r_bar + 0.5 * epsilon * grad_new
 
         return theta_bar, r_bar, grad_new, logp_new
@@ -161,7 +162,7 @@ class NUTS:
 
             return theta_m, r_m, theta_p, r_p, theta_prime, n_prime, s_prime, alpha_prime, n_alpha, grad_p, grad_m, grad_prime
 
-    def sample(self, kappa=0.75, t0=10, plot_eps=True):
+    def sample(self, override_M=None, override_Madapt=None, override_theta0=None, kappa=0.75, t0=10, plot_eps=True):
         """
         Run the NUTS sampling algorithm with dual averaging. Does not return samples but saves them in self.samples
         :param kappa    Parameter to be used in dual averaging
@@ -170,10 +171,10 @@ class NUTS:
         :return:        Nothing - sets self.samples directly
         """
         f = self.logp
-        M = self.M
-        M_adapt = self.M_adapt
-        theta0 = self.theta0
-        logp, grad = f(theta0)
+        M = self.M if override_M is None else override_M
+        M_adapt = self.M_adapt if override_Madapt is None else override_Madapt
+        theta0 = self.theta0 if override_theta0 is None else override_theta0
+        logp, grad = f(theta0, *self.logpargs)
         if self.start_eps is None:
             epsilon = self.epsilon_heuristic(theta0, logp, grad)
         else:
@@ -191,7 +192,7 @@ class NUTS:
             # resample momentum
             r0 = np.random.randn(len(theta0))
             # evaluate probability
-            logp, grad = f(self.samples[m - 1, :])
+            logp, grad = f(self.samples[m - 1, :], *self.logpargs)
             # logp(theta, r)
             joint = logp - 0.5 * r0.T @ r0
             # if u ~ uniform(0, z), then log(u) ~ log(z) - exp(1), cf. Slice sampling paper by R.M. Neal

@@ -33,10 +33,13 @@ def logpost_wrap(par_value, par_name, other_pars):
     grad_detach = par_grad.detach()
     return -ll_detach.numpy(), -grad_detach.numpy()
 
-def logpost_wrap_all(pars_np):
-    pars = unpack_pars(pars_np, dims)
+def logpost_wrap_all(pars_np, dims, pars_dict):
 
-    ll = log_posterior(X, pars[0], pars[1], pars[2], pars[3], pars[4], pars[5], pars[6], pars[7], pars[8], pars[9], w, K)
+
+    # must be in this order
+    # opt_pars = ['beta_t', 'B_t', 'steep_t', 'height_t', 'gamma_t', 'alpha_t', 'eta_t', 'tau_t']
+    pars = unpack_pars(pars_np, dims)
+    ll = log_posterior(X, pars[6], pars[5], pars_dict['c_t'], pars[4], pars[0], pars[1], par_dict['tau_t'], pars[3], pars[2], w, K)
     grads_split = grad(ll, pars)
     grads = torch.cat(grads_split, 0)
 
@@ -66,7 +69,7 @@ def unpack_pars(pars_np, dims):
 
 l_base = torch.tensor(5).double().requires_grad_(False)
 
-def log_posterior(X, eta_t, alpha_t, c_t, gamma_t, beta_t, B_t, tau_t, height_t, steep_t, w, K):
+def log_posterior(X, eta_t, alpha_t, c_t, gamma_t, beta_t, B_t, tau_t, height_t, steep_t, w, K, sample=False):
 
     W, N = X.size()
 
@@ -86,6 +89,7 @@ def log_posterior(X, eta_t, alpha_t, c_t, gamma_t, beta_t, B_t, tau_t, height_t,
     gamma = torch.exp(gamma_t)
     eta = fs.general_sigmoid(eta_t, 1, 1)
     beta = torch.exp(beta_t)
+
     c = fs.general_sigmoid(c_t, W, 0.025)
     tau = torch.exp(tau_t)
     height = fs.general_sigmoid(height_t, 1000, 0.007)
@@ -138,9 +142,6 @@ def log_posterior(X, eta_t, alpha_t, c_t, gamma_t, beta_t, B_t, tau_t, height_t,
 
 
 if __name__ == '__main__':
-    # TODO: Check om den løsning vi gerne vil have har bedre logpost end den lærte
-    # TODO: Hold parametre konstante enkeltvis - det er meget følsomt overfor startgæt i c - baseline begynder at forklare peaks
-    #
 
     optimize = False
 
@@ -240,11 +241,9 @@ if __name__ == '__main__':
         'K' : K
     }
 
-    #opt_pars = ['eta_t', 'alpha_t', 'c_t', 'gamma_t', 'B_t', 'beta_t', 'tau_t', 'height_t', 'steep_t']
-    opt_pars = ['beta_t','B_t', 'steep_t', 'height_t', 'gamma_t', 'alpha_t', 'eta_t']
+    opt_pars = ['beta_t','B_t', 'steep_t', 'height_t', 'gamma_t', 'alpha_t', 'eta_t', 'tau_t']
 
 
-    dims = [par_dict[name].shape for name in opt_pars]
 
     if optimize:
         max_iter = 25
@@ -336,14 +335,23 @@ if __name__ == '__main__':
         plt.show()
     else: # sample
         # pack parameters
-        """
-        pars = np.array([par_dict[name].detach().numpy() for name in opt_pars])
+        dims = [par_dict[name].shape for name in opt_pars if name != 'c_t' and name != 'tau_t']
+
+        pars = np.array([par_dict[name].detach().numpy() for name in opt_pars if name != 'c_t' and name != 'tau_t'])
         pars_cat = np.array([])
         for par in pars:
             try:
                 pars_cat = np.concatenate((pars_cat, par))
             except ValueError:  # ugh
-                pars_cat = np.concatenate((pars_cat, [par]))
+                pars_cat = np.concatenate((pars_cat, par.ravel()))
+
+        sampler = NUTS(logpost_wrap_all, 1000, 500, pars_cat, dims, par_dict, start_eps=10)
+
+        sampler.sample(override_M=1000, override_Madapt=500)
+
+        # TODO: Sample one at a time with NUTS, c with M-H
+
+
 
         """
         # try metropolis on c
@@ -360,6 +368,8 @@ if __name__ == '__main__':
 
         c_sampler = Metropolis(logp_c, torch.tensor([W/2.]).double().numpy(), prop_c, M=10000)
         c_sampler.sample()
+        """
+
 
 
 
