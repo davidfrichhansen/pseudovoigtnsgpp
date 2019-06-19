@@ -32,6 +32,7 @@ class NUTS:
         self.eps_list = np.zeros(M_adapt + 1)
         self.start_eps = start_eps
         self.logpargs = logp_args
+        self.epsilon = None
 
         # maybe do some smart stuff, pickling, sqlite etc.
         self.samples = np.zeros((M, len(theta0)))
@@ -171,6 +172,13 @@ class NUTS:
         :return:        Nothing - sets self.samples directly
         """
         f = self.logp
+        if override_M is not None:
+            self.samples = np.zeros((override_M, len(self.theta0)))
+            self.logparr = np.zeros(override_M)
+
+        if override_Madapt is not None:
+            self.eps_list = np.zeros(override_Madapt + 1)
+
         M = self.M if override_M is None else override_M
         M_adapt = self.M_adapt if override_Madapt is None else override_Madapt
         theta0 = self.theta0 if override_theta0 is None else override_theta0
@@ -186,10 +194,10 @@ class NUTS:
         H_bar = 0
         gamma = 0.05
         for m in range(1, M):
-            if m % 1 == 0:
+            if m % 10 == 0:
                 print("%d iterations completed\n" % m)
                 print("likelihood : %f" % logp)
-                print(f"Epsilon: {epsilon}")
+                print(f"Epsilon: {epsilon}\n\n")
             # resample momentum
             r0 = np.random.randn(len(theta0))
             # evaluate probability
@@ -238,16 +246,15 @@ class NUTS:
                 j = j + 1
 
             # dual averaging
-            if m <= M_adapt and self.start_eps is None:
+            if m <= (M_adapt-1) and self.start_eps is None:
                 H_bar = (1 - 1.0 / (m + t0)) * H_bar + 1 / (m + t0) * (self.delta - alpha / n_alpha)
                 logeps = mu - np.sqrt(m) / gamma * H_bar
                 epsilon = np.exp(logeps)
                 self.eps_list[m] = epsilon
                 logeps_bar = m ** (-kappa) * logeps + (1 - m ** (-kappa)) * logeps_bar
-                if m % 100 == 0:
-                    print("epsilon = %f\n" % epsilon)
 
-                else:
+            else:
+                if self.start_eps is None:
                     epsilon = np.exp(logeps_bar)
 
             if plot_eps and m == M_adapt and self.start_eps is None:
@@ -257,9 +264,8 @@ class NUTS:
                 plt.ylabel("Epsilon")
                 plt.show()
 
-            if self.debug:
-                print(epsilon)
-
+            if m == M_adapt:
+                self.epsilon = epsilon
             # add proposal to sample list
             self.samples[m, :] = theta_prop
             self.logparr[m] = logp
@@ -275,7 +281,7 @@ class NUTS:
 
 class Metropolis:
 
-    def __init__(self, logp, theta0, proposal_dist, M=1000, burn=0, thin=0):
+    def __init__(self, logp, theta0, proposal_dist, *logp_args,  M=1000, burn=0, thin=0):
         self.logp = logp
         self.proposal_dist = proposal_dist
         self.M = M
@@ -284,25 +290,28 @@ class Metropolis:
         self.samples = np.zeros((M, len(theta0)))
         self.burn = burn
         self.acc_rate = 0
+        self.logp_args = logp_args
 
 
 
-    def sample(self, *prop_args):
+    def sample(self, override_theta0=None, override_M=None, *prop_args):
         f = self.logp
         prop_dist = self.proposal_dist
-        current = self.theta0
+
+        current = self.theta0 if override_theta0 is None else override_theta0
+        M = self.M if override_M is None else override_M
 
         accept = 0
-        for m in range(self.M):
+        for m in range(M):
             if m % 100 == 0:
-                print(f"Iteration {m} of {self.M}")
+                print(f"Iteration {m} of {M}")
             # current logp
-            logp_old = f(current)
+            logp_old = f(current, *self.logp_args)
 
             # proposal
             proposal = prop_dist(current, *prop_args)
 
-            logp_new = f(proposal)
+            logp_new = f(proposal, *self.logp_args)
 
             a = min(0, logp_new - logp_old)
 

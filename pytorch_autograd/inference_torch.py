@@ -1,6 +1,6 @@
 import torch
 from torch.autograd import grad
-from torch.optim import LBFGS
+import time
 import funcsigs
 import numpy as np
 import matplotlib.pyplot as plt
@@ -81,10 +81,32 @@ def unpack_pars(pars_np, dims):
     return tuple(pars)
 
 
+def positive_logpost_wrap(par_value, par_name, other_pars):
+    # wraps the objective function for par_name
+    names = funcsigs.signature(log_posterior).parameters.keys()
+    par_dict = {n: None for n in names}
+    par_tensor = torch.from_numpy(par_value).requires_grad_(True)
+    # forward pass
+    for n in names:
+        if n == par_name:
+            par_dict[n] = par_tensor
+        else:
+            par_dict[n] = other_pars[n]
+
+    ll = log_posterior(par_dict['X'], par_dict['eta_t'], par_dict['alpha_t'], par_dict['c_t'], par_dict['gamma_t'],
+                       par_dict['beta_t'], par_dict['B_t'], par_dict['tau_t'], par_dict['height_t'],
+                       par_dict['steep_t'], par_dict['w'], par_dict['K'])
+
+    # backprop
+    par_grad = grad(ll, par_tensor)[0]  # par_value is tensor, which is why this works
+    ll_detach = ll.detach()
+    grad_detach = par_grad.detach()
+    return ll_detach.numpy(), grad_detach.numpy()
+
 
 l_base = torch.tensor(5).double().requires_grad_(False)
 
-def log_posterior(X, eta_t, alpha_t, c_t, gamma_t, beta_t, B_t, tau_t, height_t, steep_t, w, K, sample=False):
+def log_posterior(X, eta_t, alpha_t, c_t, gamma_t, beta_t, B_t, tau_t, height_t, steep_t, w, K):
 
     W, N = X.size()
 
@@ -155,6 +177,7 @@ def log_posterior(X, eta_t, alpha_t, c_t, gamma_t, beta_t, B_t, tau_t, height_t,
 
 if __name__ == '__main__':
 
+
     optimize = False
 
 
@@ -220,8 +243,8 @@ if __name__ == '__main__':
     tau_t = torch.log(tsig)
     beta_t = torch.log(tbeta)
 
-    height_t = fs.inv_gen_sigmoid(torch.tensor(500.0), 1000, 0.007)
-    steep_t = fs.inv_gen_sigmoid(torch.tensor(0.2),2, 1)
+    height_t = torch.unsqueeze(fs.inv_gen_sigmoid(torch.tensor(500.0), 1000, 0.007),0).double()
+    steep_t = torch.unsqueeze(fs.inv_gen_sigmoid(torch.tensor(0.2),2, 1), 0).double()
     #delta_t = torch.log(torch.tensor(15.0))
 
     lt = fs.length_scale(tc, 5*tgamma, torch.tensor(0.2), w, torch.tensor(20.0))
@@ -346,35 +369,93 @@ if __name__ == '__main__':
         plt.title('Learned betas')
         plt.show()
     else: # sample
-        # pack parameters
 
         # TODO: Sample one at a time with NUTS, c with M-H
         """  
         0.5) Make new wrapper
-        1) Make epsilon dictionary    
+        1) Make epsilon dictionary - for this to work, we must assume that we are already in an area of high prob for initial guess -> problems with burnin
         2) Do dual averaging for each variable independently
         3) Store in epsilon dictionary
         4) Draw 1 (!!) sample for each variable with their respective epsilon
         5) Save samples in array
-        6) M-H on c
+        6) M-H on c, eta and height (uniform proposals)
+        7) Do not learn tau
         """
 
-        """
-        # try metropolis on c
-        def prop_c(c):
-            return np.random.uniform(0, W, size=K)
+
+
+        ### DUAL AVERAGING
+        eps_dict = {name : None for name in opt_pars if name != 'c_t' and name != 'height_t' and name != 'eta_t' and name != 'tau_t'}
+
+        M_adapt = 5
+        t1 = time.time()
+        for name in eps_dict.keys():
+            print(f"\n\n ---- DUAL AVERAGING FOR {name} ----\n\n")
+            sampler = NUTS(positive_logpost_wrap, 1,1, par_dict[name].detach().numpy().ravel(), name, par_dict)
+            # run dual averaging
+            sampler.sample(override_M=M_adapt+1, override_Madapt=M_adapt, plot_eps=False)
+            eps_dict[name] = sampler.epsilon
+            print(eps_dict[name])
+
+        print(f"---- FINISHED DUAL AVERAGING IN {time.time() - t1} SECONDS ---- \n\n")
+
+
+        ### SAMPLING
+        num_samples = 10
+        sample_dict = {name : np.zeros((num_samples, len(par_dict[name].detach().numpy().ravel()))) for name in opt_pars if name != 'tau_t' and name != 'height_t'}
+        NUTS_dict = {name : NUTS(positive_logpost_wrap, 2, 0, par_dict[name].detach().numpy().ravel(), name, par_dict, start_eps=eps_dict[name]) for name in eps_dict.keys()}
+        #Metropolis_C = Metropolis(positive_logpost_wrap, par_dict['c_t'].detach().numpy(), lambda x : np.random.uniform(0, W, size=len(x)), name, par_dict)
+        #Metropolis_eta = Metropolis(positive_logpost_wrap, par_dict['eta_t'].detach().numpy(), lambda x : np.random.uniform(0, 1, size=len(x)), name, par_dict)
 
 
         def logp_c(c):
             c_t = fs.inv_gen_sigmoid(torch.from_numpy(c), W, 0.025).detach().numpy()
+            val, _ = positive_logpost_wrap(c_t, 'c_t', par_dict)
+            return val
 
-            val, _ = logpost_wrap(c_t, 'c_t', par_dict)
+        def prop_c(c):
+            return np.random.uniform(0,W,size=len(c))
 
-            return -val
+        def logp_eta(eta):
+            eta_t = fs.inv_gen_sigmoid(torch.from_numpy(eta), 1,1).detach().numpy()
+            val, _ = positive_logpost_wrap(eta_t, 'eta_t', par_dict)
 
-        c_sampler = Metropolis(logp_c, torch.tensor([W/2.]).double().numpy(), prop_c, M=10000)
-        c_sampler.sample()
-        """
+            return val
+
+        def prop_eta(eta):
+            return np.random.uniform(0,1, size=len(eta))
+
+        metropolisC = Metropolis(logp_c, fs.general_sigmoid(par_dict['c_t'], W, 0.025).detach().numpy(), prop_c)
+        metropolisEta = Metropolis(logp_eta, fs.general_sigmoid(par_dict['eta_t'], 1,1).detach().numpy(), prop_eta)
+
+
+        # initial sample
+        for name, sampler in NUTS_dict.items():
+            sampler.sample()
+            sample_dict[name][0,:] = sampler.samples[1,:]
+
+        metropolisC.sample(override_M=1)
+        metropolisEta.sample(override_M=1)
+
+        sample_dict['c_t'][0,:] = fs.inv_gen_sigmoid(torch.from_numpy(metropolisC.samples[0,:]), W, 0.025).numpy()
+        sample_dict['eta_t'][0,:] = fs.inv_gen_sigmoid(torch.from_numpy(metropolisEta.samples[0,:]),1,1).numpy()
+
+        # remaining samples
+        for s in range(1,num_samples):
+            # NUTS
+            for name, sampler in NUTS_dict.items():
+                sampler.sample(override_theta0=sample_dict[name][s,:])
+                sample_dict[name][s,:] = sampler.samples[1,:]
+
+            metropolisC.sample(override_M=1, override_theta0=fs.general_sigmoid(torch.from_numpy(sample_dict['c_t'][s,:]), W, 0.025).detach().numpy())
+            metropolisEta.sample(override_M=1, override_theta0=fs.general_sigmoid(torch.from_numpy(metropolisEta.samples[s,:]),1,1).detach().numpy())
+
+            sample_dict['c_t'][s, :] = fs.inv_gen_sigmoid(torch.from_numpy(metropolisC.samples[0, :]), W, 0.025).numpy()
+            sample_dict['eta_t'][s, :] = fs.inv_gen_sigmoid(torch.from_numpy(metropolisEta.samples[0, :]), 1, 1).numpy()
+
+
+
+
 
 
 
