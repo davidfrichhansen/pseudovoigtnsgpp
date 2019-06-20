@@ -300,6 +300,8 @@ class Metropolis:
 
         current = self.theta0 if override_theta0 is None else override_theta0
         M = self.M if override_M is None else override_M
+        if override_M is not None:
+            self.samples = np.zeros((override_M, len(current)))
 
         accept = 0
         for m in range(M):
@@ -329,7 +331,7 @@ class Metropolis:
             if self.thin != 0:
                 self.samples[::self.thin, :]
 
-            self.acc_rate = accept / self.M
+            self.acc_rate = accept / M
 
 
 

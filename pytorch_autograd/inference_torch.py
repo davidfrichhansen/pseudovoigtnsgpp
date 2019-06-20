@@ -182,7 +182,7 @@ if __name__ == '__main__':
 
 
 
-    mats = loadmat('/home/david/Documents/Universitet/5_aar/PseudoVoigtMCMC/implementation/data/25x25x300_K1_2hot.mat')
+    mats = loadmat('/home/david/Documents/Universitet/5_aar/PseudoVoigtMCMC/implementation/data/1x1x300_K1_2hot_noisy.mat')
     X = torch.from_numpy(mats['X'].T).double()
     gen = mats['gendata']
     W, N = X.size()
@@ -201,18 +201,22 @@ if __name__ == '__main__':
     true_beta = gen['b'][0][0]
     true_sigma = gen['sig'][0][0]
 
+    plt.figure()
     plt.plot(true_vp.T)
     plt.title('True Voigt')
     plt.show()
 
+    plt.figure()
     plt.plot(true_alpha)
     plt.title('True alpha')
     plt.show()
 
+    plt.figure()
     plt.plot(true_B)
     plt.title('True background')
     plt.show()
 
+    plt.figure()
     plt.plot(true_beta)
     plt.title('True beta')
     plt.show()
@@ -382,81 +386,100 @@ if __name__ == '__main__':
         7) Do not learn tau
         """
 
+        """
+        Accept (c, gamma, alpha) as a tuple
+        Look at proposals for c in metropolis
+    
+        
+        """
 
 
-        ### DUAL AVERAGING
-        eps_dict = {name : None for name in opt_pars if name != 'c_t' and name != 'height_t' and name != 'eta_t' and name != 'tau_t'}
+        if False:
+            ### DUAL AVERAGING
+            eps_dict = {name : None for name in opt_pars if name != 'c_t' and name != 'height_t' and name != 'eta_t' and name != 'tau_t'}
 
-        M_adapt = 5
-        t1 = time.time()
-        for name in eps_dict.keys():
-            print(f"\n\n ---- DUAL AVERAGING FOR {name} ----\n\n")
-            sampler = NUTS(positive_logpost_wrap, 1,1, par_dict[name].detach().numpy().ravel(), name, par_dict)
-            # run dual averaging
-            sampler.sample(override_M=M_adapt+1, override_Madapt=M_adapt, plot_eps=False)
-            eps_dict[name] = sampler.epsilon
-            print(eps_dict[name])
+            M_adapt = 250
+            t1 = time.time()
+            for name in eps_dict.keys():
+                print(f"\n\n ---- DUAL AVERAGING FOR {name} ----\n\n")
+                sampler = NUTS(positive_logpost_wrap, 1,1, par_dict[name].detach().numpy().ravel(), name, par_dict)
+                # run dual averaging
+                sampler.sample(override_M=M_adapt+1, override_Madapt=M_adapt, plot_eps=False)
+                eps_dict[name] = sampler.epsilon
+                print(eps_dict[name])
 
-        print(f"---- FINISHED DUAL AVERAGING IN {time.time() - t1} SECONDS ---- \n\n")
-
-
-        ### SAMPLING
-        num_samples = 10
-        sample_dict = {name : np.zeros((num_samples, len(par_dict[name].detach().numpy().ravel()))) for name in opt_pars if name != 'tau_t' and name != 'height_t'}
-        NUTS_dict = {name : NUTS(positive_logpost_wrap, 2, 0, par_dict[name].detach().numpy().ravel(), name, par_dict, start_eps=eps_dict[name]) for name in eps_dict.keys()}
-        #Metropolis_C = Metropolis(positive_logpost_wrap, par_dict['c_t'].detach().numpy(), lambda x : np.random.uniform(0, W, size=len(x)), name, par_dict)
-        #Metropolis_eta = Metropolis(positive_logpost_wrap, par_dict['eta_t'].detach().numpy(), lambda x : np.random.uniform(0, 1, size=len(x)), name, par_dict)
+            print(f"---- FINISHED DUAL AVERAGING IN {time.time() - t1} SECONDS ---- \n\n")
 
 
-        def logp_c(c):
-            c_t = fs.inv_gen_sigmoid(torch.from_numpy(c), W, 0.025).detach().numpy()
-            val, _ = positive_logpost_wrap(c_t, 'c_t', par_dict)
-            return val
-
-        def prop_c(c):
-            return np.random.uniform(0,W,size=len(c))
-
-        def logp_eta(eta):
-            eta_t = fs.inv_gen_sigmoid(torch.from_numpy(eta), 1,1).detach().numpy()
-            val, _ = positive_logpost_wrap(eta_t, 'eta_t', par_dict)
-
-            return val
-
-        def prop_eta(eta):
-            return np.random.uniform(0,1, size=len(eta))
-
-        metropolisC = Metropolis(logp_c, fs.general_sigmoid(par_dict['c_t'], W, 0.025).detach().numpy(), prop_c)
-        metropolisEta = Metropolis(logp_eta, fs.general_sigmoid(par_dict['eta_t'], 1,1).detach().numpy(), prop_eta)
+            ### SAMPLING
+            num_samples = 2000
+            sample_dict = {name : np.zeros((num_samples, len(par_dict[name].detach().numpy().ravel()))) for name in opt_pars if name != 'tau_t' and name != 'height_t'}
+            NUTS_dict = {name : NUTS(positive_logpost_wrap, 2, 0, par_dict[name].detach().numpy().ravel(), name, par_dict, start_eps=eps_dict[name]) for name in eps_dict.keys()}
 
 
-        # initial sample
-        for name, sampler in NUTS_dict.items():
-            sampler.sample()
-            sample_dict[name][0,:] = sampler.samples[1,:]
 
-        metropolisC.sample(override_M=1)
-        metropolisEta.sample(override_M=1)
+            def logp_c(c):
+                c_t = fs.inv_gen_sigmoid(torch.from_numpy(c), W, 0.025).detach().numpy()
+                val, _ = positive_logpost_wrap(c_t, 'c_t', par_dict)
+                return val
 
-        sample_dict['c_t'][0,:] = fs.inv_gen_sigmoid(torch.from_numpy(metropolisC.samples[0,:]), W, 0.025).numpy()
-        sample_dict['eta_t'][0,:] = fs.inv_gen_sigmoid(torch.from_numpy(metropolisEta.samples[0,:]),1,1).numpy()
+            def prop_c(c):
+                return np.random.normal(tc.numpy(),0.001,size=len(c))
 
-        # remaining samples
-        for s in range(1,num_samples):
-            # NUTS
+            def logp_eta(eta):
+                eta_t = fs.inv_gen_sigmoid(torch.from_numpy(eta), 1,1).detach().numpy()
+                val, _ = positive_logpost_wrap(eta_t, 'eta_t', par_dict)
+
+                return val
+
+            def prop_eta(eta):
+                return np.random.uniform(0,1, size=len(eta))
+
+            metropolisC = Metropolis(logp_c, fs.general_sigmoid(par_dict['c_t'], W, 0.025).detach().numpy(), prop_c)
+            metropolisEta = Metropolis(logp_eta, fs.general_sigmoid(par_dict['eta_t'], 1,1).detach().numpy(), prop_eta)
+
+
+            # initial sample
             for name, sampler in NUTS_dict.items():
-                sampler.sample(override_theta0=sample_dict[name][s,:])
-                sample_dict[name][s,:] = sampler.samples[1,:]
+                sampler.sample()
+                sample_dict[name][0,:] = sampler.samples[1,:]
 
-            metropolisC.sample(override_M=1, override_theta0=fs.general_sigmoid(torch.from_numpy(sample_dict['c_t'][s,:]), W, 0.025).detach().numpy())
-            metropolisEta.sample(override_M=1, override_theta0=fs.general_sigmoid(torch.from_numpy(metropolisEta.samples[s,:]),1,1).detach().numpy())
+            metropolisC.sample(override_M=1)
+            metropolisEta.sample(override_M=1)
 
-            sample_dict['c_t'][s, :] = fs.inv_gen_sigmoid(torch.from_numpy(metropolisC.samples[0, :]), W, 0.025).numpy()
-            sample_dict['eta_t'][s, :] = fs.inv_gen_sigmoid(torch.from_numpy(metropolisEta.samples[0, :]), 1, 1).numpy()
+            sample_dict['c_t'][0,:] = fs.inv_gen_sigmoid(torch.from_numpy(metropolisC.samples[0,:]), W, 0.025).numpy()
+            sample_dict['eta_t'][0,:] = fs.inv_gen_sigmoid(torch.from_numpy(metropolisEta.samples[0,:]),1,1).numpy()
+
+            # remaining samples
+            for s in range(1,num_samples):
+                # NUTS
+                for name, sampler in NUTS_dict.items():
+                    sampler.sample(override_theta0=sample_dict[name][s,:])
+                    sample_dict[name][s,:] = sampler.samples[1,:]
+
+                metropolisC.sample(override_M=1, override_theta0=fs.general_sigmoid(torch.from_numpy(sample_dict['c_t'][s,:]), W, 0.025).detach().numpy())
+                metropolisEta.sample(override_M=1, override_theta0=fs.general_sigmoid(torch.from_numpy(sample_dict['eta_t'][s,:]),1,1).detach().numpy())
+
+                sample_dict['c_t'][s, :] = fs.inv_gen_sigmoid(torch.from_numpy(metropolisC.samples[0, :]), W, 0.025).numpy()
+                sample_dict['eta_t'][s, :] = fs.inv_gen_sigmoid(torch.from_numpy(metropolisEta.samples[0, :]), 1, 1).numpy()
 
 
 
 
+            # save samples to file
+            np.save('samples2.npy', sample_dict)
+            np.save('epsilons2.npy', eps_dict)
 
+"""
+plt.axis([-50, 50, 0, 10000])
+plt.ion()
+plt.show()
 
-
-
+x = np.arange(-50, 51)
+for pow in range(1, 5):  # plot x^1, x^2, ..., x^4
+    y = [Xi ** pow for Xi in x]
+    myp = plt.plot(x, y)
+    plt.draw()
+    plt.pause(1)
+    myp[0].remove()    
+"""

@@ -2,6 +2,7 @@ import torch
 import numpy as np
 import matplotlib.pyplot as plt
 
+
 ##### NON STATIONARY KERNEl
 def gibbs_kernel(x,l,sigma):
     W = x.size()[0]
