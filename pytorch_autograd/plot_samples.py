@@ -6,13 +6,13 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.stats import truncnorm
 import implementation.pytorch_autograd.aux_funcs_torch as fs
-from scipy.io import loadmat
+from scipy.io import loadmat, savemat
 from scipy.optimize import minimize
 from implementation.pytorch_autograd.nuts import NUTS, Metropolis
 from implementation.pytorch_autograd.inference_torch import positive_logpost_wrap
 
-l_base = torch.tensor(5.0).double()
 sample_dict = np.load('/home/david/Documents/Universitet/5_aar/PseudoVoigtMCMC/samples.npy').item()
+l_base = torch.tensor(5.0).double()
 
 ## Visualize samples
 def transform_samples(sample_dict):
@@ -38,7 +38,6 @@ def transform_samples(sample_dict):
                                           torch.from_numpy(steep_samples[i, :]), torch.arange(W).double(),
                                           torch.tensor(height).double(), base=l_base)
         covB = fs.gibbs_kernel(torch.arange(W).double(), torch.tensor(l_samples[i, :]), torch.tensor(0.1))
-
         cholB = torch.cholesky(covB)
 
         B_samples[i, :] = torch.mv(cholB, torch.from_numpy(sample_dict['B_t'][i, :]).double())
@@ -61,9 +60,8 @@ plt.show()
 
 """
 
-optimize = False
 
-mats = loadmat('/home/david/Documents/Universitet/5_aar/PseudoVoigtMCMC/implementation/data/1x1x300_K1_2hot_noisy.mat')
+mats = loadmat('/home/david/Documents/Universitet/5_aar/PseudoVoigtMCMC/implementation/data/25x25x300_K1_2hot.mat')
 X = torch.from_numpy(mats['X'].T).double()
 gen = mats['gendata']
 W, N = X.size()
@@ -118,7 +116,7 @@ tsig = torch.from_numpy(true_sigma[0]).double()
 tB = torch.from_numpy(true_B.ravel()).double()
 tbeta = torch.from_numpy(true_beta.ravel()).double()
 w = torch.arange(X.shape[0]).double()
-# X = torch.from_numpy(X).double()
+
 tV = torch.from_numpy(true_vp.T)
 
 alpha_t = torch.log(ta)
@@ -127,21 +125,57 @@ c_t = fs.inv_gen_sigmoid(tc, W, 0.025)
 eta_t = fs.inv_gen_sigmoid(teta, 1, 1)
 tau_t = torch.log(tsig)
 beta_t = torch.log(tbeta)
+height = torch.tensor(20).double()
+height_t = torch.unsqueeze(fs.inv_gen_sigmoid(height, 1000, 0.007), 0).double()
+steep = torch.tensor(.1).double()
+steep_t = torch.unsqueeze(fs.inv_gen_sigmoid(steep, 2, 1), 0).double()
 
-height_t = torch.unsqueeze(fs.inv_gen_sigmoid(torch.tensor(500.0), 1000, 0.007), 0).double()
-steep_t = torch.unsqueeze(fs.inv_gen_sigmoid(torch.tensor(0.2), 2, 1), 0).double()
-# delta_t = torch.log(torch.tensor(15.0))
+l_base = torch.tensor(5).double()
+lt = fs.length_scale(tc, 2 * tgamma, steep, w, height, base=l_base)
 
-lt = fs.length_scale(tc, 5 * tgamma, torch.tensor(0.2), w, torch.tensor(20.0))
+
+plt.figure()
+plt.plot(lt.detach().numpy())
+
 covB = fs.gibbs_kernel(w, lt, tsig)
 
-cholB = torch.cholesky(covB)
+#savemat('plotcov.mat', {'covB' : covB.numpy()})
 
+
+cholB = torch.cholesky(covB) # not the same in inference test
 cholInv = torch.inverse(cholB)
+#mean_tB = torch.mean(tB)
+mean_tB = torch.tensor(0).double()
+GP = torch.distributions.multivariate_normal.MultivariateNormal(mean_tB.unsqueeze(0), covariance_matrix=covB.double())
+print(GP.log_prob(tB))
 
-B_t = torch.mv(cholInv, tB)
+plt.figure()
+plt.plot(GP.sample([5]).numpy().T)
+plt.title('samples')
+plt.axvline((tc - 2*tgamma).numpy())
+plt.axvline((tc + 2*tgamma).numpy())
 
-w = torch.from_numpy(np.array(list(range(W)))).double()
+
+plt.figure()
+plt.plot(tB.numpy())
+plt.title('True background')
+
+
+B_t = torch.mv(cholInv, (tB-mean_tB))
+plt.figure()
+plt.plot(B_t.numpy())
+plt.title('True background transformed')
+plt.axvline((tc - 2*tgamma).numpy())
+plt.axvline((tc + 2*tgamma).numpy())
+
+
+plt.figure()
+plt.plot(torch.mv(cholB, (B_t+mean_tB)).numpy())
+plt.title('hard coded')
+
+# prior for transformed variable is prop to -0.5*(B_t - mu)^T* (B_t-mu)!
+
+print(-0.5*torch.dot(B_t - mean_tB, (B_t - mean_tB)))
 
 par_dict = {
     'eta_t': eta_t,
@@ -161,26 +195,60 @@ par_dict = {
 
 def prop_c(c):
     return np.random.uniform(0,W,size=len(c))
+    #return np.random.multivariate_normal(c, 500*np.eye(len(c)))
 
 
 def logp_c(c):
     c_t = fs.inv_gen_sigmoid(torch.from_numpy(c), W, 0.025).detach().numpy()
     val, _ = positive_logpost_wrap(c_t, 'c_t', par_dict)
     return val
-metropolisC = Metropolis(logp_c, fs.general_sigmoid(c_t, W, 0.025).numpy(), prop_c)
+
+logpc_val = logp_c(tc.numpy())
+
+
+c_arr = torch.arange(1,W).double()
+logpc = np.zeros(W-1)
+
+for i in range(W-1):
+    logpc[i] = logp_c(c_arr[i].unsqueeze(0).numpy())
 
 plt.figure()
-num_samples = 1
-plt.plot(X.numpy())
+plt.plot(c_arr.numpy(),logpc)
+plt.xlabel('c')
+plt.ylabel('log prob')
+plt.title('p(c|X, alpha, beta, ...)')
+
+
+metropolisC = Metropolis(logp_c, np.array([150.0]), prop_c)
+plt.figure()
+num_samples = 500
+plt.plot(X[:,67].numpy()) # spectrum 67 has alot of signal - just for plotting
 V_plot = plt.plot( fs.pseudo_voigt(w,tc,tgamma, teta).numpy())
+c_samples = []
 for i in range(num_samples):
+
     metropolisC.sample(override_M=1)
     sample = metropolisC.samples
-
+    c_samples.append(sample[0][0])
     if metropolisC.acc_rate > 0:
+        print('Accept!')
         V_plot[0].remove()
         V = fs.pseudo_voigt(w,torch.from_numpy(sample[0,:]).double(),tgamma, teta)
         V_plot = plt.plot(V.numpy())
     plt.draw()
     plt.pause(0.01)
 
+"""
+def naive_likelihood(alpha, beta, c, gamma, eta, B, W=300):
+    V = fs.pseudo_voigt(torch.arange(W).double(), c, gamma, eta)
+    I = torch.mm(V, alpha) + torch.ger(B, beta)
+
+    return torch.distributions.normal.Normal(I, 1 / 0.1).log_prob(X).sum() + torch.log(fs.dgen_sigmoid(fs.inv_gen_sigmoid(c, W, 0.025), W, 0.025))
+
+c_arr = torch.linspace(1e-3,W,1000).double()
+ll_c = torch.zeros(len(c_arr))
+
+
+for i in range(len(c_arr)):
+    ll_c[i] = naive_likelihood(ta, tbeta, c_arr[i].unsqueeze(0), tgamma, teta, tB)
+"""

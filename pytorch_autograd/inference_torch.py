@@ -104,7 +104,7 @@ def positive_logpost_wrap(par_value, par_name, other_pars):
     return ll_detach.numpy(), grad_detach.numpy()
 
 
-l_base = torch.tensor(5).double().requires_grad_(False)
+#l_base = torch.tensor(5).double().requires_grad_(False)
 
 def log_posterior(X, eta_t, alpha_t, c_t, gamma_t, beta_t, B_t, tau_t, height_t, steep_t, w, K):
 
@@ -123,7 +123,7 @@ def log_posterior(X, eta_t, alpha_t, c_t, gamma_t, beta_t, B_t, tau_t, height_t,
 
     # parameter transformations8
     alpha = torch.exp(alpha_t).reshape(K,N)
-    gamma = torch.exp(gamma_t) + 1e-8
+    gamma = torch.exp(gamma_t)
     eta = fs.general_sigmoid(eta_t, 1, 1)
     beta = torch.exp(beta_t)
 
@@ -131,18 +131,22 @@ def log_posterior(X, eta_t, alpha_t, c_t, gamma_t, beta_t, B_t, tau_t, height_t,
     tau = torch.exp(tau_t)
     height = fs.general_sigmoid(height_t, 1000, 0.007)
     steep = fs.general_sigmoid(steep_t, 2.0, 1.0)
-
-    l = fs.length_scale(c, 5*gamma,steep,w,height, base=l_base)
+    l_base = torch.tensor(5).double().requires_grad_(False)
+    l = fs.length_scale(c, 2*gamma,steep,w,height, base=l_base)
 
     sigma = tau
 
 
     covB = fs.gibbs_kernel(w,l,sigma)
+
     cholB = torch.cholesky(covB)
 
 
     B = torch.mv(cholB, B_t)
-
+    #plt.figure()
+    #plt.plot(B.detach().numpy())
+    #plt.title('inference')
+    #plt.show()
 
 
 
@@ -167,6 +171,7 @@ def log_posterior(X, eta_t, alpha_t, c_t, gamma_t, beta_t, B_t, tau_t, height_t,
                                            torch.tensor(0.).double(),torch.tensor(5.).double()) + torch.log(fs.dgen_sigmoid(steep_t, 2.0, 1.0))
     prior_B = -0.5 * torch.dot(B_t,B_t)
     prior_c = fs.truncated_normal_lpdf(c, mu_c, 1.0 / tau_c, 0, torch.tensor(W).double()).sum() + torch.log(fs.dgen_sigmoid(c_t, W, 0.025)).sum()
+    #prior_c = torch.log(fs.dgen_sigmoid(c_t, W, 0.025)).sum()
 
     logpost = ll + prior_alpha + prior_gamma + prior_beta + prior_tau + prior_eta + \
               prior_height + prior_B + prior_c + prior_steep
@@ -259,6 +264,7 @@ if __name__ == '__main__':
     cholInv = torch.inverse(cholB)
 
     B_t = torch.mv(cholInv, tB)
+
 
     w = torch.from_numpy(np.array(list(range(W)))).double()
 

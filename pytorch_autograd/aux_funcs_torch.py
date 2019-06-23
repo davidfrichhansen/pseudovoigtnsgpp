@@ -20,7 +20,7 @@ def gibbs_kernel(x,l,sigma):
     prefactor = torch.sqrt(2 * lij / l_sums)
     exponential = torch.exp(-ximjsq / l_sums)
 
-    K = sigma*sigma*prefactor*exponential + 1e-4*torch.eye(W).double()
+    K = sigma*sigma*prefactor*exponential + 1e-8*torch.eye(W).double()
 
     return K
 
@@ -31,13 +31,27 @@ def length_scale(c,gamma,steep,w,height,base=1e-6):
     l = base*torch.ones(W).double()
 
     for idx, k in enumerate(range(0,2*K-1, 2)):
-        endpoint1 = (c[idx] - gamma[idx] - 1e-6)
-        endpoint2 = (c[idx] + gamma[idx] + 1e-6)
-        l = l + (height-base) * (torch.tanh((w - endpoint1)*steep) - torch.tanh((w-endpoint2)*steep))
+        endpoint1 = (c[idx] - gamma[idx])
+        endpoint2 = (c[idx] + gamma[idx])
+        l = l + (height) * (torch.sigmoid((w - endpoint1)*steep) - torch.sigmoid((w-endpoint2)*steep))
 
     return l
 
 
+def discont_length_scale(c,gamma,w,height,base=1e-6):
+    K = c.size()[0]
+    W = w.size()[0]
+
+    l = base*torch.ones(W).double()
+
+    for idx,k in enumerate(range(0,2*K-1,2)):
+        cond1 = w.double() >= (c[idx] - gamma[idx])
+        cond2 =w.double() <= (c[idx] + gamma[idx])
+        l[cond1 & cond2] = height
+
+    return l
+
+l = discont_length_scale(torch.tensor([150,250]).double(), torch.tensor([10,20]).double(), torch.arange(300).double(), torch.tensor(50.0), torch.tensor(5.0))
 def plot_gp_samples(w,c,gamma,steep,height,base,sigma):
     l = length_scale(c,gamma,steep,w,height,base)
 
@@ -120,6 +134,10 @@ def dgen_sigmoid(x,L,k):
 
 def inv_gen_sigmoid(x,L,k):
     val = 1/ k * (torch.log(x) - torch.log(L-x))
+    return val
+
+def dinv_gen_sigmoid(x,L,k):
+    val = L / (k*x*(L-x))
     return val
 
 """
