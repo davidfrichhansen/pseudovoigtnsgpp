@@ -194,7 +194,7 @@ class NUTS:
         H_bar = 0
         gamma = 0.05
         for m in range(1, M):
-            if m % 10 == 0:
+            if m % 1 == 0:
                 print("%d iterations completed\n" % m)
                 print("likelihood : %f" % logp)
                 print(f"Epsilon: {epsilon}\n\n")

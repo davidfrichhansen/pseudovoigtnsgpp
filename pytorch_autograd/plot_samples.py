@@ -79,7 +79,7 @@ true_gamma = gen['gamma'][0][0]
 true_B = gen['B'][0][0]
 true_beta = gen['b'][0][0]
 true_sigma = gen['sig'][0][0]
-"""
+
 
 plt.figure()
 plt.plot(true_vp.T)
@@ -100,7 +100,7 @@ plt.figure()
 plt.plot(true_beta)
 plt.title('True beta')
 plt.show()
-"""
+
 print(f"True c: {true_c}")
 print(f"True gamma: {true_gamma}")
 print(f"True eta: {true_eta}")
@@ -125,13 +125,13 @@ c_t = fs.inv_gen_sigmoid(tc, W, 0.025)
 eta_t = fs.inv_gen_sigmoid(teta, 1, 1)
 tau_t = torch.log(tsig)
 beta_t = torch.log(tbeta)
-height = torch.tensor(20).double()
+height = torch.tensor(10).double()
 height_t = torch.unsqueeze(fs.inv_gen_sigmoid(height, 1000, 0.007), 0).double()
 steep = torch.tensor(.1).double()
 steep_t = torch.unsqueeze(fs.inv_gen_sigmoid(steep, 2, 1), 0).double()
 
 l_base = torch.tensor(5).double()
-lt = fs.length_scale(tc, 2 * tgamma, steep, w, height, base=l_base)
+lt = fs.length_scale(tc, 5 * tgamma, steep, w, height, base=l_base)
 
 
 plt.figure()
@@ -152,8 +152,8 @@ print(GP.log_prob(tB))
 plt.figure()
 plt.plot(GP.sample([5]).numpy().T)
 plt.title('samples')
-plt.axvline((tc - 2*tgamma).numpy())
-plt.axvline((tc + 2*tgamma).numpy())
+plt.axvline((tc - 5*tgamma).numpy())
+plt.axvline((tc + 5*tgamma).numpy())
 
 
 plt.figure()
@@ -165,8 +165,8 @@ B_t = torch.mv(cholInv, (tB-mean_tB))
 plt.figure()
 plt.plot(B_t.numpy())
 plt.title('True background transformed')
-plt.axvline((tc - 2*tgamma).numpy())
-plt.axvline((tc + 2*tgamma).numpy())
+plt.axvline((tc - 5*tgamma).numpy())
+plt.axvline((tc + 5*tgamma).numpy())
 
 
 plt.figure()
@@ -192,6 +192,7 @@ par_dict = {
     'K': K
 }
 
+#%%
 
 def prop_c(c):
     return np.random.uniform(0,W,size=len(c))
@@ -221,34 +222,132 @@ plt.title('p(c|X, alpha, beta, ...)')
 
 metropolisC = Metropolis(logp_c, np.array([150.0]), prop_c)
 plt.figure()
-num_samples = 500
-plt.plot(X[:,67].numpy()) # spectrum 67 has alot of signal - just for plotting
-V_plot = plt.plot( fs.pseudo_voigt(w,tc,tgamma, teta).numpy())
-c_samples = []
-for i in range(num_samples):
+num_samples = 0
+#plt.plot(X[:,67].numpy()) # spectrum 67 has alot of signal - just for plotting
+plt.plot(tV.numpy())
+V_plot = plt.plot(fs.pseudo_voigt(w,tc,tgamma, teta).numpy())
+c_samples = [np.array([150.0])]
+for i in range(1,num_samples):
 
-    metropolisC.sample(override_M=1)
+    metropolisC.sample(override_M=1, override_theta0=c_samples[i-1])
     sample = metropolisC.samples
-    c_samples.append(sample[0][0])
+    c_samples.append(sample[0])
     if metropolisC.acc_rate > 0:
         print('Accept!')
         V_plot[0].remove()
         V = fs.pseudo_voigt(w,torch.from_numpy(sample[0,:]).double(),tgamma, teta)
         V_plot = plt.plot(V.numpy())
-    plt.draw()
-    plt.pause(0.01)
+        plt.draw()
+    plt.pause(0.001)
 
-"""
-def naive_likelihood(alpha, beta, c, gamma, eta, B, W=300):
-    V = fs.pseudo_voigt(torch.arange(W).double(), c, gamma, eta)
-    I = torch.mm(V, alpha) + torch.ger(B, beta)
+plt.figure()
+plt.hist([c_samples[i][0] for i in range(len(c_samples))])
 
-    return torch.distributions.normal.Normal(I, 1 / 0.1).log_prob(X).sum() + torch.log(fs.dgen_sigmoid(fs.inv_gen_sigmoid(c, W, 0.025), W, 0.025))
+#%%
+B_0 = torch.randn(W)
+num_samples = 1000
+NUTS_B = NUTS(positive_logpost_wrap, 1000,0,par_dict['B_t'].numpy(), 'B_t', par_dict, start_eps=0.55)
+NUTS_B.sample()
+B_samples = torch.zeros(1000, 300)
 
-c_arr = torch.linspace(1e-3,W,1000).double()
-ll_c = torch.zeros(len(c_arr))
+for idx,s in enumerate(NUTS_B.samples):
+    B_samples[idx, :] = torch.mv(cholB, torch.from_numpy(s))
 
 
-for i in range(len(c_arr)):
-    ll_c[i] = naive_likelihood(ta, tbeta, c_arr[i].unsqueeze(0), tgamma, teta, tB)
-"""
+#%%
+num_samples = 2000
+NUTS_alpha = NUTS(positive_logpost_wrap, num_samples, 100, par_dict['alpha_t'].numpy().ravel(), 'alpha_t', par_dict)
+
+NUTS_alpha.sample()
+alpha_samples = torch.zeros(num_samples, N)
+
+for idx, s in enumerate(NUTS_alpha.samples):
+    alpha_samples[idx,:] = torch.exp(torch.from_numpy(s))
+
+#%%
+num_samples = 1000
+NUTS_beta = NUTS(positive_logpost_wrap, num_samples, 100, par_dict['beta_t'].numpy(), 'beta_t', par_dict)
+NUTS_beta.sample()
+beta_samples = torch.zeros(num_samples-100, N)
+
+for idx, s in enumerate(NUTS_beta.samples):
+    beta_samples[idx, :] = torch.exp(torch.from_numpy(s))
+
+#%%
+
+eta_arr = torch.linspace(0,1,500).double()
+
+def logp_eta(eta):
+    eta_t = fs.inv_gen_sigmoid(eta,1,1).unsqueeze(0).detach().numpy()
+
+    val, _ = positive_logpost_wrap(eta_t, 'eta_t', par_dict)
+    return val
+
+def prop_eta(eta):
+    return np.random.uniform(0,1,size=len(eta))
+
+logpeta = np.zeros(len(eta_arr))
+
+for idx, eta in enumerate(eta_arr):
+    logpeta[idx] = logp_eta(eta)
+
+
+metropolisEta = Metropolis(logp_eta, np.array([0.5]), prop_eta)
+
+
+
+#%% c, gamma, B, height
+
+def logp_height(h):
+    h_t = fs.inv_gen_sigmoid(torch.from_numpy(np.array(h)).double(), 1000, 0.007).double().detach().numpy()
+    val, _ = positive_logpost_wrap(h_t, 'height_t', par_dict)
+    return val
+
+
+def prop_h(h):
+    #return np.random.normal(h,10)
+    return np.random.uniform(0,1000)
+
+metropolisH = Metropolis(logp_height, np.array([30]), prop_h)
+
+NUTS_gamma = NUTS(positive_logpost_wrap, 2,0, par_dict['gamma_t'].detach().numpy(), 'gamma_t', par_dict, start_eps=0.053)
+
+NUTS_gamma.sample()
+
+
+num_samples = 2000
+samples_dict = {'c':np.zeros((num_samples,K)),'gamma':np.zeros((num_samples,K)), 'B':np.zeros((num_samples,W)), 'height':np.zeros((num_samples))}
+
+# initial sample
+NUTS_gamma.sample(override_M=2, override_Madapt=0)
+NUTS_B.sample(override_M=2, override_Madapt=0)
+metropolisC.sample(override_M=1)
+metropolisH.sample(override_M=1)
+
+samples_dict['c'][0,:] = metropolisC.samples[0]
+samples_dict['height'][0] = metropolisH.samples[0]
+samples_dict['B'][0,:] = NUTS_B.samples[1,:]
+samples_dict['gamma'][0,:] = NUTS_gamma.samples[1,:]
+
+
+for s in range(1,num_samples):
+    NUTS_gamma.sample(override_M=2, override_Madapt=0, override_theta0=samples_dict['gamma'][s,:])
+    NUTS_B.sample(override_M=2, override_Madapt=0, override_theta0=samples_dict['B'][s,:])
+    metropolisC.sample(override_M=1, override_theta0=samples_dict['c'][s,:])
+    metropolisH.sample(override_M=1, override_theta0=np.array([samples_dict['height'][s]]))
+
+    samples_dict['c'][s, :] = metropolisC.samples[0]
+    samples_dict['height'][s] = metropolisH.samples[0]
+    samples_dict['B'][s, :] = NUTS_B.samples[1, :]
+    samples_dict['gamma'][s,:] = NUTS_gamma.samples[1, :]
+
+    par_dict['c_t'] = fs.inv_gen_sigmoid(torch.from_numpy(samples_dict['c'][s,:]), W, 0.025)
+    par_dict['gamma_t'] = torch.from_numpy(samples_dict['gamma'][s,:]).double()
+    par_dict['height_t'] = fs.inv_gen_sigmoid(torch.from_numpy(np.array(samples_dict['height'][s])), 1000, 0.007).double()
+    par_dict['B_t'] = torch.from_numpy(samples_dict['B'][s,:])
+#gamma_arr = torch.linspace(1e-8,30,1000).double()
+#logpgamma = np.zeros(len(gamma_arr))
+
+#for idx, g in enumerate(gamma_arr):
+#    val, _ = positive_logpost_wrap(torch.log(g.unsqueeze(0)).numpy(), 'gamma_t', par_dict)
+#    logpgamma[idx] = val

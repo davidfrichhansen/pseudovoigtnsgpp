@@ -106,17 +106,19 @@ def positive_logpost_wrap(par_value, par_name, other_pars):
 
 #l_base = torch.tensor(5).double().requires_grad_(False)
 
-def log_posterior(X, eta_t, alpha_t, c_t, gamma_t, beta_t, B_t, tau_t, height_t, steep_t, w, K):
+def log_posterior(X, eta_t, alpha_t, c_t, gamma_t, beta_t, B_t, tau_t, height_t, steep_t, w, K, ):
 
     W, N = X.size()
-
+    mean_TB = torch.tensor([0.0]).double()
     alpha0 = torch.tensor(0.2)
     mu_c = torch.tensor(W/2.)
-    tau_c = torch.tensor(0.05)
+    tau_c = torch.tensor(0.005)
 
     #beta0 = torch.tensor(1.0)
     a_tau = torch.tensor(7.5)
     b_tau = torch.tensor(1.0)
+
+    l_base = torch.tensor(5).double().requires_grad_(False)
 
 
 
@@ -131,8 +133,7 @@ def log_posterior(X, eta_t, alpha_t, c_t, gamma_t, beta_t, B_t, tau_t, height_t,
     tau = torch.exp(tau_t)
     height = fs.general_sigmoid(height_t, 1000, 0.007)
     steep = fs.general_sigmoid(steep_t, 2.0, 1.0)
-    l_base = torch.tensor(5).double().requires_grad_(False)
-    l = fs.length_scale(c, 2*gamma,steep,w,height, base=l_base)
+    l = fs.length_scale(c, 5*gamma,steep,w,height, base=l_base)
 
     sigma = tau
 
@@ -142,7 +143,7 @@ def log_posterior(X, eta_t, alpha_t, c_t, gamma_t, beta_t, B_t, tau_t, height_t,
     cholB = torch.cholesky(covB)
 
 
-    B = torch.mv(cholB, B_t)
+    B = torch.mv(cholB, B_t) + mean_TB
     #plt.figure()
     #plt.plot(B.detach().numpy())
     #plt.title('inference')
@@ -159,10 +160,10 @@ def log_posterior(X, eta_t, alpha_t, c_t, gamma_t, beta_t, B_t, tau_t, height_t,
     prior_alpha = torch.distributions.exponential.Exponential(alpha0).log_prob(alpha).sum() + alpha_t.sum()
     #prior_alpha = fs.truncated_normal_lpdf(alpha, torch.tensor(5.0).double(), torch.tensor(1.5).double(), torch.tensor(0.0).double(), torch.tensor(float('Inf')).double()).sum() + \
     #alpha_t.sum()
-    prior_gamma = fs.truncated_normal_lpdf(gamma, torch.tensor(10.).double(), torch.tensor(1.0/10.0).double(), torch.tensor(0.0).double(), torch.tensor(float('Inf')).double()).sum() + \
+    prior_gamma = fs.truncated_normal_lpdf(gamma, torch.tensor(10.).double(), torch.tensor(1.0/3.0).double(), torch.tensor(0.0).double(), torch.tensor(float('Inf')).double()).sum() + \
         gamma_t.sum()
 
-    prior_beta = fs.truncated_normal_lpdf(beta, torch.tensor(0.5), torch.tensor(0.2), 0, torch.tensor(float('Inf')).double()).sum() + beta_t.sum()
+    prior_beta = fs.truncated_normal_lpdf(beta, torch.tensor(0.5), torch.tensor(1.0), 0, torch.tensor(float('Inf')).double()).sum() + beta_t.sum()
     prior_tau = torch.distributions.gamma.Gamma(a_tau,b_tau).log_prob(tau).sum() + tau_t
     prior_eta = torch.log(fs.dgen_sigmoid(eta_t, 1,1)).sum()
     #  torch.distributions.normal.Normal(torch.tensor(20.0), torch.tensor(5.0)).log_prob(height) +
@@ -187,7 +188,7 @@ if __name__ == '__main__':
 
 
 
-    mats = loadmat('/home/david/Documents/Universitet/5_aar/PseudoVoigtMCMC/implementation/data/1x1x300_K1_2hot_noisy.mat')
+    mats = loadmat('/home/david/Documents/Universitet/5_aar/PseudoVoigtMCMC/implementation/data/25x25x300_K1_2hot_noisy.mat')
     X = torch.from_numpy(mats['X'].T).double()
     gen = mats['gendata']
     W, N = X.size()
@@ -400,7 +401,7 @@ if __name__ == '__main__':
         """
 
 
-        if False:
+        if True:
             ### DUAL AVERAGING
             eps_dict = {name : None for name in opt_pars if name != 'c_t' and name != 'height_t' and name != 'eta_t' and name != 'tau_t'}
 
@@ -430,7 +431,8 @@ if __name__ == '__main__':
                 return val
 
             def prop_c(c):
-                return np.random.normal(tc.numpy(),0.001,size=len(c))
+                #return np.random.normal(tc.numpy(),0.001,size=len(c))
+                return np.random.uniform(0,W, size=len(c))
 
             def logp_eta(eta):
                 eta_t = fs.inv_gen_sigmoid(torch.from_numpy(eta), 1,1).detach().numpy()
@@ -462,13 +464,16 @@ if __name__ == '__main__':
                 for name, sampler in NUTS_dict.items():
                     sampler.sample(override_theta0=sample_dict[name][s,:])
                     sample_dict[name][s,:] = sampler.samples[1,:]
+                    par_dict[name] = torch.tensor(sampler.samples[1,:]).double()
 
                 metropolisC.sample(override_M=1, override_theta0=fs.general_sigmoid(torch.from_numpy(sample_dict['c_t'][s,:]), W, 0.025).detach().numpy())
                 metropolisEta.sample(override_M=1, override_theta0=fs.general_sigmoid(torch.from_numpy(sample_dict['eta_t'][s,:]),1,1).detach().numpy())
-
-                sample_dict['c_t'][s, :] = fs.inv_gen_sigmoid(torch.from_numpy(metropolisC.samples[0, :]), W, 0.025).numpy()
+                c_sample = fs.inv_gen_sigmoid(torch.from_numpy(metropolisC.samples[0, :]), W, 0.025).numpy()
+                print(f"c: {c_sample}")
+                sample_dict['c_t'][s, :] = c_sample
                 sample_dict['eta_t'][s, :] = fs.inv_gen_sigmoid(torch.from_numpy(metropolisEta.samples[0, :]), 1, 1).numpy()
-
+                par_dict['c_t'] = torch.tensor(c_sample).double()
+                par_dict['eta_t'] = fs.inv_gen_sigmoid(torch.from_numpy(metropolisEta.samples[0, :]), 1, 1)
 
 
 
