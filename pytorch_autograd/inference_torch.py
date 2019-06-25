@@ -95,7 +95,7 @@ def positive_logpost_wrap(par_value, par_name, other_pars):
 
     ll = log_posterior(par_dict['X'], par_dict['eta_t'], par_dict['alpha_t'], par_dict['c_t'], par_dict['gamma_t'],
                        par_dict['beta_t'], par_dict['B_t'], par_dict['tau_t'], par_dict['height_t'],
-                       par_dict['steep_t'], par_dict['w'], par_dict['K'])
+                       par_dict['steep_t'], par_dict['w'], par_dict['K'], par_dict['l_base'])
 
     # backprop
     par_grad = grad(ll, par_tensor)[0]  # par_value is tensor, which is why this works
@@ -106,10 +106,11 @@ def positive_logpost_wrap(par_value, par_name, other_pars):
 
 #l_base = torch.tensor(5).double().requires_grad_(False)
 
-def log_posterior(X, eta_t, alpha_t, c_t, gamma_t, beta_t, B_t, tau_t, height_t, steep_t, w, K, ):
+def log_posterior(X, eta_t, alpha_t, c_t, gamma_t, beta_t, B_t, tau_t, height_t, steep_t, w, K, l_base=torch.tensor(5.0).double()):
 
     W, N = X.size()
     mean_TB = torch.tensor([0.0]).double()
+    #mean_TB = torch.median(X*X)
     alpha0 = torch.tensor(0.2)
     mu_c = torch.tensor(W/2.)
     tau_c = torch.tensor(0.005)
@@ -118,7 +119,7 @@ def log_posterior(X, eta_t, alpha_t, c_t, gamma_t, beta_t, B_t, tau_t, height_t,
     a_tau = torch.tensor(7.5)
     b_tau = torch.tensor(1.0)
 
-    l_base = torch.tensor(5).double().requires_grad_(False)
+    #l_base = torch.tensor(5).double().requires_grad_(False)
 
 
 
@@ -135,7 +136,7 @@ def log_posterior(X, eta_t, alpha_t, c_t, gamma_t, beta_t, B_t, tau_t, height_t,
     steep = fs.general_sigmoid(steep_t, 2.0, 1.0)
     l = fs.length_scale(c, 5*gamma,steep,w,height, base=l_base)
 
-    sigma = tau
+    sigma = 1/tau
 
 
     covB = fs.gibbs_kernel(w,l,sigma)
@@ -144,11 +145,6 @@ def log_posterior(X, eta_t, alpha_t, c_t, gamma_t, beta_t, B_t, tau_t, height_t,
 
 
     B = torch.mv(cholB, B_t) + mean_TB
-    #plt.figure()
-    #plt.plot(B.detach().numpy())
-    #plt.title('inference')
-    #plt.show()
-
 
 
     # likelihood
@@ -160,10 +156,10 @@ def log_posterior(X, eta_t, alpha_t, c_t, gamma_t, beta_t, B_t, tau_t, height_t,
     prior_alpha = torch.distributions.exponential.Exponential(alpha0).log_prob(alpha).sum() + alpha_t.sum()
     #prior_alpha = fs.truncated_normal_lpdf(alpha, torch.tensor(5.0).double(), torch.tensor(1.5).double(), torch.tensor(0.0).double(), torch.tensor(float('Inf')).double()).sum() + \
     #alpha_t.sum()
-    prior_gamma = fs.truncated_normal_lpdf(gamma, torch.tensor(10.).double(), torch.tensor(1.0/3.0).double(), torch.tensor(0.0).double(), torch.tensor(float('Inf')).double()).sum() + \
+    prior_gamma = fs.truncated_normal_lpdf(gamma, torch.tensor(10.).double(), torch.tensor(1.0/6.0).double(), torch.tensor(0.0).double(), torch.tensor(float('Inf')).double()).sum() + \
         gamma_t.sum()
 
-    prior_beta = fs.truncated_normal_lpdf(beta, torch.tensor(0.5), torch.tensor(1.0), 0, torch.tensor(float('Inf')).double()).sum() + beta_t.sum()
+    prior_beta = fs.truncated_normal_lpdf(beta, torch.tensor(0.5), torch.tensor(0.02), 0, torch.tensor(float('Inf')).double()).sum() + beta_t.sum()
     prior_tau = torch.distributions.gamma.Gamma(a_tau,b_tau).log_prob(tau).sum() + tau_t
     prior_eta = torch.log(fs.dgen_sigmoid(eta_t, 1,1)).sum()
     #  torch.distributions.normal.Normal(torch.tensor(20.0), torch.tensor(5.0)).log_prob(height) +

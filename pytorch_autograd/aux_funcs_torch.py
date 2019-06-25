@@ -20,7 +20,7 @@ def gibbs_kernel(x,l,sigma):
     prefactor = torch.sqrt(2 * lij / l_sums)
     exponential = torch.exp(-ximjsq / l_sums)
 
-    K = sigma*sigma*prefactor*exponential + 1e-8*torch.eye(W).double()
+    K = sigma*sigma*prefactor*exponential + 1e-7*torch.eye(W).double()
 
     return K
 
