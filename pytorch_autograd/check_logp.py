@@ -1,6 +1,6 @@
 import numpy as np
 import torch
-from implementation.pytorch_autograd.inference_torch import log_posterior
+from implementation.pytorch_autograd.inference_torch_DEPRECATED import log_posterior
 import implementation.pytorch_autograd.aux_funcs_torch as fs
 from scipy.io import loadmat
 import matplotlib.pyplot as plt

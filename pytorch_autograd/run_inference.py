@@ -1,6 +1,6 @@
 import torch
 from torch.autograd import grad
-import time
+
 import funcsigs
 import numpy as np
 import matplotlib.pyplot as plt
@@ -8,7 +8,6 @@ from scipy.stats import truncnorm
 import implementation.pytorch_autograd.aux_funcs_torch as fs
 from scipy.io import loadmat, savemat
 from implementation.pytorch_autograd.nuts import NUTS, Metropolis
-from implementation.pytorch_autograd.inference_torch import positive_logpost_wrap
 
 
 ### FUNCTIONS
@@ -105,7 +104,7 @@ def log_posterior(X, eta_t, alpha_t, c_t, gamma_t, beta_t, B_t, tau_t, height_t,
 
     return logpost
 
-
+#### SETUP
 mats = loadmat('/home/david/Documents/Universitet/5_aar/PseudoVoigtMCMC/implementation/data/25x25x300_K1_2hot.mat')
 X = torch.from_numpy(mats['X'].T).double()
 gen = mats['gendata']
@@ -172,12 +171,12 @@ c_t = fs.inv_gen_sigmoid(tc, W, 0.025)
 eta_t = fs.inv_gen_sigmoid(teta, 1, 1)
 tau_t = torch.log(tsig)
 beta_t = torch.log(tbeta)
-height = torch.tensor(100).double()
+height = torch.tensor(150).double()
 height_t = torch.unsqueeze(fs.inv_gen_sigmoid(height, 1000, 0.007), 0).double()
 steep = torch.tensor(.1).double()
 steep_t = torch.unsqueeze(fs.inv_gen_sigmoid(steep, 2, 1), 0).double()
 
-l_base = torch.tensor(70).double()
+l_base = torch.tensor(100).double()
 lt = fs.length_scale(tc, 5 * tgamma, steep, w, height, base=l_base)
 
 
@@ -241,9 +240,24 @@ par_dict = {
 }
 par_dict_orig = par_dict
 
-#%% c, gamma, B, height
-
+#%%  INFERENCE
 par_dict = par_dict_orig
+
+
+# DUAL AVERAGING
+M_adapt = 300
+NUTS_alpha = NUTS(positive_logpost_wrap, M_adapt+1,M_adapt, par_dict['alpha_t'].numpy().ravel(), 'alpha_t', par_dict)
+NUTS_B = NUTS(positive_logpost_wrap, M_adapt+1, M_adapt,par_dict['B_t'].detach().numpy(), 'B_t', par_dict)
+NUTS_beta = NUTS(positive_logpost_wrap, M_adapt+1, M_adapt, par_dict['beta_t'].numpy(), 'beta_t', par_dict)
+
+NUTS_alpha.sample()
+NUTS_B.sample()
+NUTS_beta.sample()
+
+eps_alpha = np.mean(NUTS_alpha.eps_list[-50])
+eps_B = np.mean(NUTS_B.eps_list[-50])
+eps_beta = np.mean(NUTS_beta.eps_list[-50])
+
 
 def logp_height(h, par_dict):
     h_t = fs.inv_gen_sigmoid(torch.from_numpy(np.array(h)).double(), 1000, 0.007).double().detach().numpy()
@@ -294,12 +308,12 @@ metropolisH = Metropolis(logp_height, np.array([30.0]), prop_h, par_dict)
 
 # initial sample
 #NUTS_gamma.sample(override_M=2, override_Madapt=0)
-NUTS_B = NUTS(positive_logpost_wrap, 2,0,par_dict['B_t'].detach().numpy(), 'B_t', par_dict, start_eps=0.55)
+NUTS_B = NUTS(positive_logpost_wrap, 2,0,par_dict['B_t'].detach().numpy(), 'B_t', par_dict, start_eps=eps_B)
 NUTS_B.sample(override_M=2, override_Madapt=0)
-NUTS_alpha = NUTS(positive_logpost_wrap, 2,0, par_dict['alpha_t'].numpy().ravel(), 'alpha_t', par_dict, start_eps=0.05)
+NUTS_alpha = NUTS(positive_logpost_wrap, 2,0, par_dict['alpha_t'].numpy().ravel(), 'alpha_t', par_dict, start_eps=eps_alpha)
 NUTS_alpha.sample()
 
-NUTS_beta = NUTS(positive_logpost_wrap, 2, 0, par_dict['beta_t'].numpy(), 'beta_t', par_dict, start_eps=0.2)
+NUTS_beta = NUTS(positive_logpost_wrap, 2, 0, par_dict['beta_t'].numpy(), 'beta_t', par_dict, start_eps=eps_beta)
 NUTS_beta.sample()
 
 
@@ -321,12 +335,10 @@ V_plot = plt.plot(fs.pseudo_voigt(w,tc,tgamma, teta).numpy())
 plt.pause(10)
 
 for s in range(1,num_samples):
-
-
-    NUTS_B = NUTS(positive_logpost_wrap, 2, 0, samples_dict['B'][s-1,:], 'B_t', par_dict, start_eps=0.55)
+    NUTS_B = NUTS(positive_logpost_wrap, 2, 0, samples_dict['B'][s-1,:], 'B_t', par_dict, start_eps=eps_B)
     NUTS_alpha = NUTS(positive_logpost_wrap, 2, 0, samples_dict['alpha'][s-1,:], 'alpha_t', par_dict,
-                      start_eps=0.05)
-    NUTS_beta = NUTS(positive_logpost_wrap, 2, 0, samples_dict['beta'][s-1,:], 'beta_t', par_dict, start_eps=0.2)
+                      start_eps=eps_alpha)
+    NUTS_beta = NUTS(positive_logpost_wrap, 2, 0, samples_dict['beta'][s-1,:], 'beta_t', par_dict, start_eps=eps_beta)
     NUTS_beta.sample()
     metropolisGamma.sample(override_M=1, override_theta0=samples_dict['gamma'][s-1,:])
     NUTS_B.sample()
@@ -358,12 +370,6 @@ for s in range(1,num_samples):
     par_dict['B_t'] = torch.from_numpy(samples_dict['B'][s,:])
     par_dict['alpha_t'] = torch.from_numpy(samples_dict['alpha'][s,:])
     par_dict['beta_t'] = torch.from_numpy(samples_dict['beta'][s,:])
-#gamma_arr = torch.linspace(1e-8,30,1000).double()
-#logpgamma = np.zeros(len(gamma_arr))
-
-#for idx, g in enumerate(gamma_arr):
-#    val, _ = positive_logpost_wrap(torch.log(g.unsqueeze(0)).numpy(), 'gamma_t', par_dict)
-#    logpgamma[idx] = val
 
 #%%
 B_samples = np.zeros((num_samples, W))
