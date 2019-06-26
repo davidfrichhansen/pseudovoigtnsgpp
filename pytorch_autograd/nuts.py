@@ -312,7 +312,7 @@ class Metropolis:
 
             # proposal
             proposal = prop_dist(current, *prop_args)
-
+            print(f"Proposal: {proposal}\n")
             logp_new = f(proposal, *self.logp_args)
 
             a = min(0, logp_new - logp_old)
