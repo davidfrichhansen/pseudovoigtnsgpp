@@ -53,20 +53,20 @@ def discont_length_scale(c,gamma,w,height,base=1e-6):
 
 l = discont_length_scale(torch.tensor([150,250]).double(), torch.tensor([10,20]).double(), torch.arange(300).double(), torch.tensor(50.0), torch.tensor(5.0))
 def plot_gp_samples(w,c,gamma,steep,height,base,sigma):
-    l = length_scale(c,gamma,steep,w,height,base)
+    l = length_scale(c,3*gamma,steep,w,height,base)
 
     K = gibbs_kernel(w,l,sigma)
 
-    plt.plot(l.numpy())
+    #plt.plot(l.numpy())
     plt.title('Length scale')
     plt.show()
 
     #samples = torch.cholesky(K).numpy() @ np.random.randn(w.size()[0], 1)
-    samples = np.random.multivariate_normal(np.zeros(300), K.numpy(), size=3)
+    samples = np.random.multivariate_normal(np.zeros(300), K.numpy(), size=6)
 
     plt.plot(samples.T)
-    plt.axvline(c - gamma, lw=2, ls='--', c='k')
-    plt.axvline(c + gamma, lw=2, ls='--', c='k')
+    plt.axvline(c - 3*gamma, lw=2, ls='--', c='k')
+    plt.axvline(c + 3*gamma, lw=2, ls='--', c='k')
     plt.title('Prior samples')
     plt.show()
 
