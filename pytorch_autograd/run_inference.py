@@ -105,7 +105,7 @@ def log_posterior(X, eta_t, alpha_t, c_t, gamma_t, beta_t, B_t, tau_t, height_t,
     return logpost
 
 #### SETUP
-mats = loadmat('/home/david/Documents/Universitet/5_aar/PseudoVoigtMCMC/implementation/data/25x25x300_K1_2hot_lessnoisy.mat')
+mats = loadmat('/home/david/Documents/Universitet/5_aar/PseudoVoigtMCMC/implementation/data/25x25x300_K1_2hot.mat')
 X = torch.from_numpy(mats['X'].T).double()
 gen = mats['gendata']
 W, N = X.size()
@@ -176,7 +176,7 @@ height_t = torch.unsqueeze(fs.inv_gen_sigmoid(height, 1000, 0.007), 0).double()
 steep = torch.tensor(.1).double()
 steep_t = torch.unsqueeze(fs.inv_gen_sigmoid(steep, 2, 1), 0).double()
 
-l_base = torch.tensor(40).double()
+l_base = torch.tensor(60).double()
 lt = fs.length_scale(tc, 3* tgamma, steep, w, height, base=l_base)
 
 
@@ -244,6 +244,27 @@ par_dict_orig = par_dict
 par_dict = par_dict_orig
 
 
+
+# DUAL AVERAGING
+M_adapt = 30
+NUTS_alpha = NUTS(positive_logpost_wrap, M_adapt+1,M_adapt, par_dict['alpha_t'].numpy().ravel(), 'alpha_t', par_dict)
+NUTS_B = NUTS(positive_logpost_wrap, M_adapt+1, M_adapt,par_dict['B_t'].detach().numpy(), 'B_t', par_dict)
+NUTS_beta = NUTS(positive_logpost_wrap, M_adapt+1, M_adapt, par_dict['beta_t'].numpy(), 'beta_t', par_dict)
+#NUTS_gamma = NUTS(positive_logpost_wrap, M_adapt+1, M_adapt, par_dict['gamma_t'].numpy(), 'gamma_t', par_dict)
+#NUTS_gamma.sample()
+NUTS_alpha.sample()
+NUTS_B.sample()
+NUTS_beta.sample()
+
+eps_alpha = np.mean(NUTS_alpha.eps_list[-20])
+eps_B = np.mean(NUTS_B.eps_list[-20])
+eps_beta = np.mean(NUTS_beta.eps_list[-20])
+#eps_gamma = np.mean(NUTS_gamma.eps_list[-20])
+
+# %%SAMPLES
+par_dict = par_dict_orig
+
+
 def logp_height(h, par_dict):
     h_t = fs.inv_gen_sigmoid(torch.from_numpy(np.array(h)).double(), 1000, 0.007).double().detach().numpy()
     val, _ = positive_logpost_wrap(h_t, 'height_t', par_dict)
@@ -288,29 +309,10 @@ def prop_eta(eta):
 
 
 
-# DUAL AVERAGING
-M_adapt = 30
-NUTS_alpha = NUTS(positive_logpost_wrap, M_adapt+1,M_adapt, par_dict['alpha_t'].numpy().ravel(), 'alpha_t', par_dict)
-NUTS_B = NUTS(positive_logpost_wrap, M_adapt+1, M_adapt,par_dict['B_t'].detach().numpy(), 'B_t', par_dict)
-NUTS_beta = NUTS(positive_logpost_wrap, M_adapt+1, M_adapt, par_dict['beta_t'].numpy(), 'beta_t', par_dict)
-#NUTS_gamma = NUTS(positive_logpost_wrap, M_adapt+1, M_adapt, par_dict['gamma_t'].numpy(), 'gamma_t', par_dict)
-#NUTS_gamma.sample()
-NUTS_alpha.sample()
-NUTS_B.sample()
-NUTS_beta.sample()
-
-eps_alpha = np.mean(NUTS_alpha.eps_list[-20])
-eps_B = np.mean(NUTS_B.eps_list[-20])
-eps_beta = np.mean(NUTS_beta.eps_list[-20])
-#eps_gamma = np.mean(NUTS_gamma.eps_list[-20])
-
-#%% SAMPLES
-par_dict = par_dict_orig
-
 num_samples = 250
 live_plot = True
 
-metropolisC = Metropolis(logp_c, np.array([120.0]), prop_c, par_dict)
+metropolisC = Metropolis(logp_c, np.array([170.0]), prop_c, par_dict)
 
 metropolisGamma = Metropolis(logp_gamma, np.array([10.0]), prop_gamma, par_dict)
 
@@ -372,11 +374,11 @@ for s in range(1,num_samples):
     #NUTS_c.sample()
 
     print("SAMPLE C\n\n")
-    for ic in range(10):
+    for ic in range(1):
         metropolisC = Metropolis(logp_c, samples_dict['c'][s-1,:], prop_c, par_dict)
         metropolisC.sample(override_M=1)
-        if metropolisC.acc_rate > 0:
-            break
+        #if metropolisC.acc_rate > 0:
+        #    break
 
     NUTS_B = NUTS(positive_logpost_wrap, 2, 0, samples_dict['B'][s-1,:], 'B_t', par_dict, start_eps=eps_B)
     NUTS_alpha = NUTS(positive_logpost_wrap, 2, 0, samples_dict['alpha'][s-1,:], 'alpha_t', par_dict,
@@ -387,11 +389,11 @@ for s in range(1,num_samples):
     #NUTS_gamma = NUTS(positive_logpost_wrap, 2,0, np.log(samples_dict['gamma'][s-1,:]), 'gamma_t', par_dict, start_eps=0.5)
     #NUTS_gamma.sample()
     print("SAMPLE GAMMA \n\n")
-    for gi in range(10):
+    for gi in range(1):
         metropolisGamma = Metropolis(logp_gamma, samples_dict['gamma'][s-1,:], prop_gamma, par_dict)
         metropolisGamma.sample(override_M=1)
-        if metropolisGamma.acc_rate > 0:
-            break
+        #if metropolisGamma.acc_rate > 0:
+        #    break
     NUTS_B.sample()
     NUTS_alpha.sample()
 
