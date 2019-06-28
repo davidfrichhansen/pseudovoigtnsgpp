@@ -4,9 +4,15 @@ import matplotlib.pyplot as plt
 from scipy.io import loadmat
 import implementation.pytorch_autograd.aux_funcs_torch as fs
 
+
+fig_path = '/home/david/Documents/Universitet/5_aar/PseudoVoigtMCMC/report/figs/low_noise/bad_guess/'
+
+
 # load samples and data
-samples_dict = np.load('/home/david/Documents/Universitet/5_aar/PseudoVoigtMCMC/base60_250samples_goodnonoise.npy').item()
+samples_dict = np.load('/home/david/Documents/Universitet/5_aar/PseudoVoigtMCMC/base60_125samples_2.npy').item()
 mats = loadmat('/home/david/Documents/Universitet/5_aar/PseudoVoigtMCMC/implementation/data/25x25x300_K1_2hot.mat')
+l_base = torch.tensor(12).double()
+
 X = torch.from_numpy(mats['X'].T).double()
 W, N = X.size()
 
@@ -29,7 +35,6 @@ num_samples = samples_dict['height'].shape[0]
 
 K = 1
 steep = torch.tensor(0.1).double()
-l_base = torch.tensor(60).double()
 tsig = torch.tensor(1.0).double()
 
 B_samples = np.zeros((num_samples, W))
@@ -67,14 +72,15 @@ for s in range(num_samples):
     V_samples[s,:] = fs.pseudo_voigt(w,cur_c, cur_g, torch.tensor(np.array(eta_samples[s,:]))).numpy().ravel()
 
 
-idx = [-5, -10,-50,-100,-150, -200]
-
+#idx = [-5, -10,-50,-75,-150, -200]
+idx = [-1, -10, -50, -75, -100, -110]
 plt.figure()
 
 for i in idx:
     plt.plot(B_samples[idx].T)
     plt.title('Samples of background')
     plt.xlabel('Wavenumber')
+plt.savefig(fig_path + 'background_samples.png')
 
 
 plt.figure()
@@ -84,12 +90,15 @@ for i in idx:
     plt.title('Recovered Pseudo-voigt component')
     plt.xlabel('Wavenumber')
 
+plt.savefig(fig_path + 'voigt_samples.png')
+
 plt.figure()
 plt.plot(true_alpha, '--', lw=3)
 for i in idx:
     plt.plot(alpha_samples[i,:])
     plt.title('Samples of amplitudes')
     plt.xlabel('Observation number')
+plt.savefig(fig_path + 'alpha_samples.png')
 
 plt.figure()
 plt.plot(true_beta, '--', lw=3)
@@ -97,6 +106,8 @@ plt.title('Samples of background contributions')
 plt.xlabel('Observation number')
 for i in [-50]:
     plt.plot(beta_samples[i,:])
+plt.savefig(fig_path + 'beta_samples.png')
+
 
 
 # plot single observation voigt
@@ -107,3 +118,5 @@ plt.title('Observation with most signal and samples and alpha * V')
 plt.xlabel('Wavenumber')
 for i in idx:
     plt.plot(alpha_samples[i,most_sig] * V_samples[i,:])
+
+plt.savefig(fig_path + 'most_sig_spec.png')
