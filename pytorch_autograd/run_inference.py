@@ -105,7 +105,7 @@ def log_posterior(X, eta_t, alpha_t, c_t, gamma_t, beta_t, B_t, tau_t, height_t,
     return logpost
 
 #### SETUP
-mats = loadmat('/home/david/Documents/Universitet/5_aar/PseudoVoigtMCMC/implementation/data/25x25x300_K1_2hot.mat')
+mats = loadmat('/home/david/Documents/Universitet/5_aar/PseudoVoigtMCMC/implementation/data/simulated.mat')
 X = torch.from_numpy(mats['X'].T).double()
 gen = mats['gendata']
 W, N = X.size()
@@ -115,18 +115,21 @@ X.shape
 
 K = 1
 
+w = torch.arange(X.shape[0]).double()
+
 true_alpha = gen['A'][0][0]
-true_vp = gen['vp'][0][0]
-true_c = gen['c'][0][0]
-true_eta = gen['eta_voigt'][0][0]
-true_gamma = gen['gamma'][0][0]
+#true_vp = gen['vp'][0][0]
+true_c = gen['theta'][0][0][0][0]
+true_eta = gen['theta'][0][0][0][2]
+true_gamma = gen['theta'][0][0][0][1]
 true_B = gen['B'][0][0]
 true_beta = gen['b'][0][0]
 true_sigma = gen['sig'][0][0]
+true_vp = fs.pseudo_voigt(w, torch.tensor([true_c]).double(), torch.tensor([true_gamma]).double(), torch.tensor([true_eta]).double())
 
 
 plt.figure()
-plt.plot(true_vp.T)
+plt.plot(true_vp.numpy())
 plt.title('True Voigt')
 plt.show()
 
@@ -153,30 +156,29 @@ print(f"True noise: {true_sigma}")
 # convert to tensors
 
 ta = torch.from_numpy(true_alpha.T).double()
-tgamma = torch.from_numpy(true_gamma[0]).double()
-tc = torch.from_numpy(true_c[0]).double()
-teta = torch.from_numpy(true_eta[0]).double()
+tgamma = torch.from_numpy(np.array([true_gamma])).double()
+tc = torch.from_numpy(np.array([true_c])).double()
+teta = torch.from_numpy(np.array([true_eta])).double()
 #tsig = 1.0 /torch.from_numpy(true_sigma[0]).double()
 tsig = torch.tensor(1.0).double()
 tB = torch.from_numpy(true_B.ravel()).double()
 tbeta = torch.from_numpy(true_beta.ravel()).double()
-w = torch.arange(X.shape[0]).double()
 
 
-tV = torch.from_numpy(true_vp.T)
-
+#tV = torch.from_numpy(true_vp.T)
+tV = true_vp
 alpha_t = torch.log(ta)
 gamma_t = torch.log(tgamma)
 c_t = fs.inv_gen_sigmoid(tc, W, 0.025)
 eta_t = fs.inv_gen_sigmoid(teta, 1, 1)
 tau_t = torch.log(tsig)
 beta_t = torch.log(tbeta)
-height = torch.tensor(100).double()
+height = torch.tensor(150).double()
 height_t = torch.unsqueeze(fs.inv_gen_sigmoid(height, 1000, 0.007), 0).double()
 steep = torch.tensor(.1).double()
 steep_t = torch.unsqueeze(fs.inv_gen_sigmoid(steep, 2, 1), 0).double()
 
-l_base = torch.tensor(60).double()
+l_base = torch.tensor(5).double()
 lt = fs.length_scale(tc, 3* tgamma, steep, w, height, base=l_base)
 
 
@@ -261,7 +263,7 @@ eps_B = np.mean(NUTS_B.eps_list[-20])
 eps_beta = np.mean(NUTS_beta.eps_list[-20])
 #eps_gamma = np.mean(NUTS_gamma.eps_list[-20])
 
-# %%SAMPLES
+#%% SAMPLES
 par_dict = par_dict_orig
 
 
@@ -312,7 +314,7 @@ def prop_eta(eta):
 num_samples = 250
 live_plot = True
 
-metropolisC = Metropolis(logp_c, np.array([170.0]), prop_c, par_dict)
+metropolisC = Metropolis(logp_c, np.array([240.0]), prop_c, par_dict)
 
 metropolisGamma = Metropolis(logp_gamma, np.array([10.0]), prop_gamma, par_dict)
 
@@ -361,10 +363,10 @@ if live_plot:
     plt.figure()
     #plt.plot(X[:,67].numpy()) # spectrum 67 has alot of signal - just for plotting
     #V_plot = plt.plot(fs.pseudo_voigt(w,torch.from_numpy(samples_dict['c'][0,:]).double(),torch.from_numpy(samples_dict['gamma'][0,:]), torch.from_numpy(samples_dict['eta'][0,:])).numpy())
-    plt.plot((ta[:, 492] * fs.pseudo_voigt(w, tc.double(),
+    plt.plot((ta[:, 327] * fs.pseudo_voigt(w, tc.double(),
                                            tgamma,
                                            teta)).numpy())
-    V_plot = plt.plot((ta[:,492]*fs.pseudo_voigt(w, tc.double(),
+    V_plot = plt.plot((ta[:,327]*fs.pseudo_voigt(w, tc.double(),
                                       tgamma,
                                       teta)).numpy())
     plt.pause(0.5)
@@ -419,8 +421,8 @@ for s in range(1,num_samples):
     if live_plot:
         V_plot[0].remove()
         V = fs.pseudo_voigt(w,torch.from_numpy(samples_dict['c'][s,:]),torch.from_numpy((samples_dict['gamma'][s,:])), torch.from_numpy(samples_dict['eta'][s,:]))
-        V_plot = plt.plot((torch.exp(torch.tensor(samples_dict['alpha'][s,492]))*V).numpy(),color='C1')
-        print(f"alpha diff: {ta[:,492].numpy() - samples_dict['alpha'][s,492]}\n")
+        V_plot = plt.plot((torch.exp(torch.tensor(samples_dict['alpha'][s,327]))*V).numpy(),color='C1')
+        print(f"alpha diff: {ta[:,327].numpy() -  np.exp(samples_dict['alpha'][s,327])}\n")
        # V_plot = plt.plot((V).numpy(),color='C1')
         plt.draw()
         plt.pause(0.001)
