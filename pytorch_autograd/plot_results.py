@@ -10,7 +10,7 @@ fig_path = '/home/david/Documents/Universitet/5_aar/PseudoVoigtMCMC/report/figs/
 
 # load samples and data
 samples_dict = np.load('/home/david/Documents/Universitet/5_aar/PseudoVoigtMCMC/base60_125samples_2.npy').item()
-mats = loadmat('/home/david/Documents/Universitet/5_aar/PseudoVoigtMCMC/implementation/data/25x25x300_K1_2hot.mat')
+mats = loadmat('/home/david/Documents/Universitet/5_aar/PseudoVoigtMCMC/implementation/data/simulated.mat')
 l_base = torch.tensor(12).double()
 
 X = torch.from_numpy(mats['X'].T).double()
