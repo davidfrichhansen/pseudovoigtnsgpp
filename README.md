@@ -21,3 +21,5 @@ The following scripts and functions are important:
     - Contains implementation of lengthscale function as well as the Gibbs kernel which introduces the non-stationarity to the Gaussian process.
     
    
+  - `plot_results.py`
+    - Loads some samples and data and produces the plots in the report. Overwrites already saved files
